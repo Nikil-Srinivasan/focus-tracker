@@ -24,6 +24,8 @@ log = logging.getLogger(__name__)
 ACTIVE, IDLE, LOCKED, PAUSED = "active", "idle", "locked", "paused"
 EXCLUDED_TITLE = "[excluded]"
 CAP_CHECK_EVERY_S = 600
+CAPTURER_REFRESH_S = 600  # re-read the monitor layout (docking, plugging in)
+CAPTURER_RETRY_S = 60
 
 
 class Span:
@@ -79,8 +81,11 @@ class Agent:
         self._last_shot_ts = 0.0
         self._last_cap_check = 0.0
         self._thumbs: dict[int, object] = {}
+        self._capturer_created = 0.0
+        self._capturer_failed_at = -CAPTURER_RETRY_S
         self._goal_lock = threading.Lock()
         self._goal_prompt_running = False
+        self._goal_failed_day: str | None = None
         self.current_state = ACTIVE
 
     # controls (called from the tray thread)
@@ -112,16 +117,18 @@ class Agent:
         self.state.update(now, (state,))
 
         fg: Foreground | None = None
-        excluded = False
-        no_shot = False
+        no_shot = True  # fail closed: no foreground window means no screenshot
         if state == ACTIVE:
             fg = self.system.foreground()
             if fg is not None:
                 excluded = self._is_excluded(fg)
                 no_shot = excluded or self._is_no_screenshot(fg)
                 title = EXCLUDED_TITLE if excluded else fg.title
-                capturer = self._capturer_or_none()
+                capturer = self._capturer_or_none(now)
                 monitor = capturer.monitor_index_for_rect(fg.monitor_rect) if capturer else None
+                if capturer is not None and fg.monitor_rect is not None and monitor is None:
+                    # The window is on a monitor mss does not know: the layout changed.
+                    self._reset_capturer()
                 self.activity.update(now, (fg.process, title, monitor))
             else:
                 self.activity.close()
@@ -147,6 +154,19 @@ class Agent:
             return IDLE
         return ACTIVE
 
+    def _blocked_monitors(self, capturer: Capturer) -> set[int] | None:
+        """Monitors showing any visible excluded / no-screenshot window, not just the
+        foreground one. None means a blocked window's monitor is unknown: skip all."""
+        blocked: set[int] = set()
+        for win in self.system.visible_windows():
+            if not (self._is_excluded(win) or self._is_no_screenshot(win)):
+                continue
+            idx = capturer.monitor_index_for_rect(win.monitor_rect)
+            if idx is None:
+                return None
+            blocked.add(idx)
+        return blocked
+
     def _is_excluded(self, fg: Foreground) -> bool:
         if fg.process.lower() in self.cfg.exclude_processes:
             return True
@@ -157,26 +177,51 @@ class Agent:
         title = fg.title.lower()
         return any(k in title for k in self.cfg.no_screenshot_title_keywords)
 
-    def _capturer_or_none(self) -> Capturer | None:
+    def _capturer_or_none(self, now: float) -> Capturer | None:
+        if self._capturer is not None and now - self._capturer_created >= CAPTURER_REFRESH_S:
+            self._reset_capturer()
         if self._capturer is None:
+            if now - self._capturer_failed_at < CAPTURER_RETRY_S:
+                return None
             try:
                 self._capturer = self._capturer_factory()
+                self._capturer_created = now
             except Exception:
-                log.exception("Could not start screen capture")
+                log.exception("Could not start screen capture; retrying in %d s", CAPTURER_RETRY_S)
+                self._capturer_failed_at = now
                 return None
         return self._capturer
 
+    def _reset_capturer(self) -> None:
+        close = getattr(self._capturer, "close", None)
+        if close:
+            try:
+                close()
+            except Exception:
+                log.debug("Closing capturer failed", exc_info=True)
+        self._capturer = None
+        self._thumbs.clear()
+
     def _take_screenshots(self, now: float) -> None:
-        capturer = self._capturer_or_none()
+        capturer = self._capturer_or_none(now)
         if capturer is None:
+            return
+        try:
+            blocked = self._blocked_monitors(capturer)
+        except Exception:
+            log.exception("Could not list visible windows; skipping screenshot")
+            return
+        if blocked is None:
             return
         try:
             frames = capturer.grab()
         except Exception:
             log.exception("Screen grab failed")
-            self._capturer = None  # recreate next time (e.g. display change)
+            self._reset_capturer()  # recreate next time (e.g. display change)
             return
         for monitor, img in frames:
+            if monitor in blocked:
+                continue
             thumb = capture.thumbnail(img)
             if not capture.is_changed(self._thumbs.get(monitor), thumb, self.cfg.dedupe_threshold):
                 continue
@@ -194,7 +239,11 @@ class Agent:
             return
         day = self.day_key(now)
         with self._goal_lock:
-            if self._goal_prompt_running or self.store.get_goal(day) is not None:
+            if (
+                self._goal_prompt_running
+                or self._goal_failed_day == day
+                or self.store.get_goal(day) is not None
+            ):
                 return
             self._goal_prompt_running = True
         threading.Thread(target=self._ask_goal, args=(day,), daemon=True, name="goal").start()
@@ -205,7 +254,8 @@ class Agent:
             text, keywords = answer if answer else (None, None)
             self.store.set_goal(day, time.time(), text or None, keywords or None)
         except Exception:
-            log.exception("Goal prompt failed")
+            log.exception("Goal prompt failed; not asking again today")
+            self._goal_failed_day = day
         finally:
             with self._goal_lock:
                 self._goal_prompt_running = False
@@ -220,7 +270,5 @@ class Agent:
             except Exception:
                 log.exception("Tick failed")
             stop.wait(max(0.0, self.cfg.window_poll_s - (time.monotonic() - started)))
-        close = getattr(self._capturer, "close", None)
-        if close:
-            close()
+        self._reset_capturer()
         log.info("Agent stopped")

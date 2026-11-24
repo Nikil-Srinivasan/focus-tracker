@@ -22,6 +22,7 @@ class System(Protocol):
     def foreground(self) -> Foreground | None: ...
     def idle_seconds(self) -> float: ...
     def is_locked(self) -> bool: ...
+    def visible_windows(self) -> list[Foreground]: ...
 
 
 def make_system() -> System:
@@ -78,6 +79,22 @@ class WindowsSystem:
         user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
         user32.GetMonitorInfoW.restype = wintypes.BOOL
         user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
+        self._WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.EnumWindows.argtypes = [self._WNDENUMPROC, wintypes.LPARAM]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsIconic.restype = wintypes.BOOL
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        try:
+            dwmapi = ctypes.WinDLL("dwmapi")
+            dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+            dwmapi.DwmGetWindowAttribute.argtypes = [
+                wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+            ]
+            self._dwmapi = dwmapi
+        except OSError:
+            self._dwmapi = None
         kernel32.GetTickCount.restype = wintypes.DWORD
         kernel32.GetTickCount.argtypes = []
         kernel32.OpenProcess.restype = wintypes.HANDLE
@@ -108,16 +125,46 @@ class WindowsSystem:
             pass
 
     def foreground(self) -> Foreground | None:
-        ct, wt, user32 = self._ct, self._wt, self._user32
-        hwnd = user32.GetForegroundWindow()
+        hwnd = self._user32.GetForegroundWindow()
         if not hwnd:
             return None
+        return self._describe(hwnd)
+
+    def _describe(self, hwnd: int) -> Foreground:
+        ct, wt, user32 = self._ct, self._wt, self._user32
         length = user32.GetWindowTextLengthW(hwnd)
         buf = ct.create_unicode_buffer(length + 1)
         user32.GetWindowTextW(hwnd, buf, length + 1)
         pid = wt.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ct.byref(pid))
         return Foreground(self._process_name(pid.value), buf.value, self._monitor_rect(hwnd))
+
+    def visible_windows(self) -> list[Foreground]:
+        """Every visible, non-minimised, non-cloaked top-level window with a title.
+
+        Occluded windows are included on purpose: better to skip a screenshot than
+        to capture a bank page peeking out from behind another window.
+        """
+        user32 = self._user32
+        hwnds: list[int] = []
+
+        def collect(hwnd, _lparam):
+            if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd) and not self._cloaked(hwnd):
+                if user32.GetWindowTextLengthW(hwnd) > 0:
+                    hwnds.append(hwnd)
+            return True
+
+        user32.EnumWindows(self._WNDENUMPROC(collect), 0)
+        return [self._describe(h) for h in hwnds]
+
+    def _cloaked(self, hwnd: int) -> bool:
+        """Windows on other virtual desktops and suspended UWP apps are 'cloaked'."""
+        if self._dwmapi is None:
+            return False
+        ct, wt = self._ct, self._wt
+        value = wt.DWORD()
+        hr = self._dwmapi.DwmGetWindowAttribute(hwnd, 14, ct.byref(value), ct.sizeof(value))
+        return hr == 0 and value.value != 0
 
     def _process_name(self, pid: int) -> str:
         ct, wt, k32 = self._ct, self._wt, self._kernel32

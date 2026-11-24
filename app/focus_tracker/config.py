@@ -90,6 +90,8 @@ class Config:
             raise ValueError("intervals must be positive (screenshots at least 1 s)")
         if not 1 <= self.jpeg_quality <= 95:
             raise ValueError("jpeg_quality must be 1 to 95")
+        if self.max_storage_gb <= 0:
+            raise ValueError("max_storage_gb must be greater than 0")
         if not 0 <= self.day_rollover_hour <= 23:
             raise ValueError("day_rollover_hour must be 0 to 23")
 

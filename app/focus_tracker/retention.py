@@ -64,22 +64,45 @@ def wipe_before(store: Store, shots_dir: Path, boundary_ts: float) -> int:
 
 
 def enforce_cap(store: Store, cfg: Config) -> int:
-    """If live screenshots exceed max_storage_gb, delete whole days, oldest first,
-    down to 90% of the cap. Never deletes today's folder. Returns days deleted."""
+    """If live screenshots exceed max_storage_gb, delete whole days oldest first,
+    then the oldest files of the newest day, down to 90% of the cap.
+    Returns the number of files deleted."""
     cap = cfg.max_storage_gb * 1024**3
+    target = cap * 0.9
     total = store.live_screenshot_bytes()
     if total <= cap:
         return 0
-    days = store.live_screenshot_days()
     deleted = 0
-    for day, size in days[:-1]:  # keep the newest day
-        if total <= cap * 0.9:
+    days = store.live_screenshot_days()
+    for day, size in days[:-1]:
+        if total <= target:
             break
+        count = store.query(
+            "SELECT COUNT(*) FROM screenshot WHERE deleted = 0 AND path LIKE ?", (f"{day}/%",)
+        )[0][0]
         _remove_tree(cfg.shots_dir / day)
         store.mark_day_deleted(day)
         total -= size
-        deleted += 1
+        deleted += count
         log.warning("Storage cap: deleted screenshots for %s", day)
+    if total > target:
+        # The newest day alone is over the cap: trim its oldest files.
+        ids = []
+        for shot_id, rel, size in store.query(
+            "SELECT id, path, bytes FROM screenshot WHERE deleted = 0 ORDER BY ts"
+        ):
+            if total <= target:
+                break
+            try:
+                (cfg.shots_dir / rel).unlink(missing_ok=True)
+            except OSError:
+                continue
+            ids.append(shot_id)
+            total -= size
+        store.mark_deleted(ids)
+        deleted += len(ids)
+        log.warning("Storage cap: trimmed %d of today's oldest screenshots", len(ids))
+    remove_empty_dirs(cfg.shots_dir)
     return deleted
 
 

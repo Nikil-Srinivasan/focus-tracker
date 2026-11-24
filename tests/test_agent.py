@@ -136,3 +136,57 @@ def test_bank_and_payment_titles_are_excluded(cfg, store):
     run(agent, T0, 6)
     assert cap.grabs == 0
     assert store.query("SELECT title FROM activity") == [(EXCLUDED_TITLE,)]
+
+
+def test_excluded_window_on_other_monitor_blocks_that_monitor(cfg, store):
+    agent, system, cap = make(cfg, store)
+    system.others = [Foreground("Bitwarden.exe", "Vault", (1920, 0, 3840, 1080))]
+    agent.tick(T0)
+    assert [m for _, m, _ in shots(store)] == [1]
+
+
+def test_bank_page_behind_on_unknown_monitor_blocks_all(cfg, store):
+    agent, system, cap = make(cfg, store)
+    system.others = [Foreground("brave.exe", "ICICI Bank - Brave", None)]
+    agent.tick(T0)
+    assert shots(store) == []
+
+
+def test_no_foreground_window_means_no_screenshot(cfg, store):
+    agent, system, cap = make(cfg, store)
+    system.fg = None
+    run(agent, T0, 6)
+    assert cap.grabs == 0
+
+
+def test_failed_goal_prompt_not_retried_same_day(cfg, store):
+    calls = []
+
+    def broken(day):
+        calls.append(day)
+        raise RuntimeError("no tkinter")
+
+    agent, _system, _cap = make(cfg, store, broken)
+    agent._ask_goal(agent.day_key(T0))
+    run(agent, T0, 5)
+    assert calls == ["2026-11-24"]
+
+
+def test_capturer_factory_failure_backs_off(cfg, store):
+    attempts = []
+
+    def factory():
+        attempts.append(1)
+        raise OSError("no display")
+
+    agent = Agent(cfg, store, FakeSystem(), factory)
+    run(agent, T0, 30)
+    assert len(attempts) == 1
+
+
+def test_unknown_monitor_resets_capturer(cfg, store):
+    agent, system, cap = make(cfg, store)
+    agent.tick(T0)
+    cap.monitor_index_for_rect = lambda rect: None  # layout changed
+    agent.tick(T0 + 1)
+    assert cap.closed

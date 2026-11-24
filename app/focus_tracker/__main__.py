@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import __version__
 from .agent import Agent
-from .config import load_config
+from .config import ROOT, load_config
 from .db import Store
 
 
@@ -48,6 +48,13 @@ def _single_instance(lock_path: Path):
     return fh
 
 
+def _show_error(message: str) -> None:
+    if sys.platform == "win32":
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, message, "Focus tracker", 0x10)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="focus_tracker", description=__doc__)
     parser.add_argument("--config", type=Path, help="path to config.toml")
@@ -56,7 +63,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--version", action="version", version=__version__)
     args = parser.parse_args(argv)
 
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except Exception as exc:  # pythonw has no console: leave a trace somewhere visible
+        _setup_logging(ROOT / "data" / "logs", args.verbose)
+        logging.getLogger(__name__).error("Invalid configuration: %s", exc)
+        _show_error(f"Focus tracker could not start.\n\nInvalid configuration:\n{exc}")
+        sys.exit(2)
     _setup_logging(cfg.log_dir, args.verbose)
     lock = _single_instance(cfg.data_dir / "agent.lock")  # noqa: F841  keep the handle open
 
@@ -82,7 +95,8 @@ def main(argv: list[str] | None = None) -> None:
     finally:
         stop.set()
         worker.join(10)
-        store.close()
+        if not worker.is_alive():
+            store.close()
 
 
 if __name__ == "__main__":

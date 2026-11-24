@@ -52,3 +52,13 @@ def test_cap_deletes_oldest_days_but_keeps_today(cfg, store):
     d3 = _add_shot(cfg, store, datetime(2026, 11, 26, 10), size=2000)
     assert retention.enforce_cap(store, cfg) == 2
     assert not d1.exists() and not d2.exists() and d3.exists()
+
+
+def test_cap_trims_newest_day_when_it_alone_is_too_big(cfg, store):
+    cfg.max_storage_gb = 3000 / 1024**3
+    early = _add_shot(cfg, store, datetime(2026, 11, 24, 9), size=2000)
+    mid = _add_shot(cfg, store, datetime(2026, 11, 24, 10), size=2000)
+    late = _add_shot(cfg, store, datetime(2026, 11, 24, 11), size=500)
+    # 4500 bytes > 3000 cap; deleting the oldest file reaches 2500 <= 90% of cap.
+    assert retention.enforce_cap(store, cfg) == 1
+    assert not early.exists() and mid.exists() and late.exists()

@@ -15,6 +15,7 @@ class FakeSystem:
         self.fg: Foreground | None = Foreground("Code.exe", "agent.py - focus-tracker", (0, 0, 1920, 1080))
         self.idle = 0.0
         self.locked = False
+        self.others: list[Foreground] = []  # visible windows besides the foreground one
 
     def foreground(self):
         return self.fg
@@ -25,6 +26,9 @@ class FakeSystem:
     def is_locked(self):
         return self.locked
 
+    def visible_windows(self):
+        return ([self.fg] if self.fg else []) + self.others
+
 
 class FakeCapturer:
     """Two 1080p-shaped monitors (small images for speed). Change `shade` to alter frames."""
@@ -32,6 +36,10 @@ class FakeCapturer:
     def __init__(self) -> None:
         self.shade = {1: 10, 2: 200}
         self.grabs = 0
+        self.closed = False
+
+    def close(self):
+        self.closed = True
 
     def grab(self):
         self.grabs += 1

@@ -6,8 +6,13 @@ Set-Location $root
 
 if (-not (Test-Path ".venv")) {
     Write-Host "Creating virtual environment..."
-    py -3.12 -m venv .venv
-    if ($LASTEXITCODE -ne 0) { python -m venv .venv }
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        py -3.12 -m venv .venv
+        if ($LASTEXITCODE -ne 0) { py -3 -m venv .venv }
+    } else {
+        python -m venv .venv
+    }
+    if (-not (Test-Path ".venv\Scripts\python.exe")) { throw "Could not create .venv. Install Python 3.11+ from python.org." }
 }
 & .venv\Scripts\python.exe -m pip install --upgrade pip
 & .venv\Scripts\python.exe -m pip install -e ".[dev]"
