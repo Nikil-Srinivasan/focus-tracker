@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 import threading
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from . import __version__
 from .agent import Agent
 from .config import ROOT, load_config
 from .db import Store
+
+PAUSE_HOTKEY_S = 15 * 60
 
 
 def _setup_logging(log_dir: Path, verbose: bool) -> None:
@@ -75,15 +78,26 @@ def main(argv: list[str] | None = None) -> None:
 
     from .browser import BrowserState, start_server
     from .capture import MssCapturer
-    from .goal import prompt_goal
+    from .config import parse_hotkey
+    from .dashboard import Dashboard, start_dashboard
+    from .goal import prompt_break, prompt_goal
     from .system import make_system
 
     store = Store(cfg.db_path)
     system = make_system()
-    system.start_switch_watcher()
     browser = BrowserState()
     server = start_server(browser, cfg.extension_port)
-    agent = Agent(cfg, store, system, MssCapturer, prompt_goal, browser)
+    agent = Agent(cfg, store, system, MssCapturer, prompt_goal, browser, prompt_break)
+
+    def toggle_pause() -> None:
+        if agent.paused_until > time.time():
+            agent.resume()
+        else:
+            agent.pause(PAUSE_HOTKEY_S)
+
+    system.start_switch_watcher(parse_hotkey(cfg.pause_hotkey), toggle_pause)
+    dashboard = start_dashboard(Dashboard(cfg, store, agent), cfg.dashboard_port)
+    dashboard_url = f"http://127.0.0.1:{cfg.dashboard_port}/" if dashboard else None
     stop = threading.Event()
     worker = threading.Thread(target=agent.run, args=(stop,), name="agent")
     worker.start()
@@ -94,13 +108,14 @@ def main(argv: list[str] | None = None) -> None:
         else:
             from .tray import run_tray
 
-            run_tray(agent, stop)
+            run_tray(agent, stop, dashboard_url)
     except KeyboardInterrupt:
         pass
     finally:
         stop.set()
-        if server is not None:
-            server.shutdown()
+        for srv in (server, dashboard):
+            if srv is not None:
+                srv.shutdown()
         worker.join(10)
         if not worker.is_alive():
             store.close()

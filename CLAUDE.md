@@ -10,7 +10,9 @@ dashboard and writes a weekly, ranked improvement plan. Nothing leaves the PC.
   screenshots), `system.py` (Win32 via ctypes: foreground, idle, lock, event hook,
   audio), `capture.py` (mss + JPEG + dedupe), `db.py` (SQLite, WAL),
   `retention.py` (weekly wipe + storage cap), `browser.py` (local bridge for the
-  extension), `categorize.py` + `default_rules.toml`, `titles.py`, `tray.py`, `stats.py`.
+  extension), `categorize.py` + `default_rules.toml`, `titles.py`, `tray.py`, `stats.py`,
+  `metrics.py` (deterministic focus metrics), `dashboard.py` (local JSON API + page),
+  `goal.py` (goal and back-from-break prompts), `web/` (plain HTML/CSS/JS, no build step).
 - `extension/`: Brave MV3 extension, talks only to `http://127.0.0.1:5610/browser`.
 - `scripts/`: Windows setup/startup scripts and the personal-data guard.
 - `tests/`: pytest with fake system/capturer, runs on Linux and Windows.
@@ -40,7 +42,10 @@ python scripts/check_no_personal_data.py --all
 5. **URLs**: store scheme://host/path only by default (no query, fragment or
    credentials). Never log URLs or titles to the log file.
 6. **Local only**: servers bind to 127.0.0.1. The bridge accepts only
-   `chrome-extension://` origins and JSON bodies up to 16 KB.
+   `chrome-extension://` origins and JSON bodies up to 16 KB. The dashboard
+   rejects other Host headers, needs its per-run token on every POST, sends a
+   strict CSP, and loads nothing from the internet. Logged titles and URLs are
+   untrusted: render them with `textContent`, never `innerHTML`.
 7. **Screenshots**: only while active or watching (not idle, locked or paused);
    all screenshots wiped weekly (Sunday 23:59 local, or next start if missed);
    hard storage cap. The activity log is kept.

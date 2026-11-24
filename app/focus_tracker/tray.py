@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+import webbrowser
 from datetime import datetime
 
 from PIL import Image, ImageDraw
@@ -20,7 +21,7 @@ def _icon(color: tuple[int, int, int]) -> Image.Image:
     return img
 
 
-def run_tray(agent: Agent, stop: threading.Event) -> None:
+def run_tray(agent: Agent, stop: threading.Event, dashboard_url: str | None = None) -> None:
     """Blocking; returns when the user picks Quit or `stop` is set."""
     import pystray
 
@@ -40,6 +41,10 @@ def run_tray(agent: Agent, stop: threading.Event) -> None:
     def resume(icon, _item):
         agent.resume()
         refresh(icon)
+
+    def open_dashboard(_icon, _item):
+        if dashboard_url:
+            webbrowser.open(dashboard_url)
 
     def open_folder(_icon, _item):
         os.startfile(agent.cfg.data_dir)  # type: ignore[attr-defined]  # Windows only
@@ -62,6 +67,7 @@ def run_tray(agent: Agent, stop: threading.Event) -> None:
         "Focus tracker",
         menu=pystray.Menu(
             pystray.MenuItem(status, None, enabled=False),
+            pystray.MenuItem("Open dashboard", open_dashboard, default=True, enabled=bool(dashboard_url)),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Pause 15 minutes", pause(15 * 60)),
             pystray.MenuItem("Pause 1 hour", pause(60 * 60)),
