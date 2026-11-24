@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS activity (
     end_ts   REAL NOT NULL,
     process  TEXT NOT NULL,
     title    TEXT NOT NULL,
-    monitor  INTEGER
+    monitor  INTEGER,
+    url      TEXT
 );
 CREATE INDEX IF NOT EXISTS activity_start ON activity(start_ts);
 -- One row per continuous stretch of active / idle / locked / paused.
@@ -59,6 +60,9 @@ class Store:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(SCHEMA)
+            cols = {row[1] for row in self._conn.execute("PRAGMA table_info(activity)")}
+            if "url" not in cols:  # added in phase 2
+                self._conn.execute("ALTER TABLE activity ADD COLUMN url TEXT")
 
     def close(self) -> None:
         with self._lock:
@@ -85,10 +89,13 @@ class Store:
         )
 
     # activity
-    def open_activity(self, ts: float, process: str, title: str, monitor: int | None) -> int:
+    def open_activity(
+        self, ts: float, process: str, title: str, monitor: int | None, url: str | None = None
+    ) -> int:
         cur = self._exec(
-            "INSERT INTO activity(start_ts, end_ts, process, title, monitor) VALUES(?, ?, ?, ?, ?)",
-            (ts, ts, process, title, monitor),
+            "INSERT INTO activity(start_ts, end_ts, process, title, monitor, url) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (ts, ts, process, title, monitor, url),
         )
         return int(cur.lastrowid)
 

@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Focus tracker bridge",
+  "version": "0.2.0",
+  "description": "Sends the focused tab (URL, title, audible) to the local focus tracker on 127.0.0.1. Nothing leaves your PC. Never runs in private windows.",
+  "permissions": ["tabs", "alarms"],
+  "host_permissions": ["http://127.0.0.1:5610/*"],
+  "background": { "service_worker": "background.js" },
+  "incognito": "not_allowed"
+}

@@ -5,9 +5,15 @@ Only Windows is implemented. Tests use a fake with the same three methods.
 
 from __future__ import annotations
 
+import logging
 import os
+import queue
 import sys
+import threading
+import time
 from typing import NamedTuple, Protocol
+
+log = logging.getLogger(__name__)
 
 Rect = tuple[int, int, int, int]  # left, top, right, bottom in physical pixels
 
@@ -23,9 +29,11 @@ class System(Protocol):
     def idle_seconds(self) -> float: ...
     def is_locked(self) -> bool: ...
     def visible_windows(self) -> list[Foreground]: ...
+    def drain_switches(self) -> list[tuple[float, Foreground]]: ...
+    def media_playing(self) -> bool: ...
 
 
-def make_system() -> System:
+def make_system() -> "WindowsSystem":
     if sys.platform != "win32":
         raise RuntimeError("Focus tracker currently supports Windows only.")
     return WindowsSystem()
@@ -107,6 +115,92 @@ class WindowsSystem:
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
         self._set_dpi_aware()
+        self._switches: queue.SimpleQueue = queue.SimpleQueue()
+        self._com = threading.local()
+        user32.IsWindow.restype = wintypes.BOOL
+        user32.IsWindow.argtypes = [wintypes.HWND]
+
+    # Event-driven switch tracking -------------------------------------------------
+
+    def start_switch_watcher(self) -> None:
+        """Hook foreground changes and title changes of the foreground window.
+
+        Runs its own message loop thread; the callback only queues (time, hwnd).
+        """
+        threading.Thread(target=self._hook_loop, daemon=True, name="winevent").start()
+
+    def _hook_loop(self) -> None:
+        ct, wt, user32 = self._ct, self._wt, self._user32
+        EVENT_SYSTEM_FOREGROUND, EVENT_OBJECT_NAMECHANGE = 0x0003, 0x800C
+        WINEVENT_SKIPOWNPROCESS = 0x0002
+        proc_type = ct.WINFUNCTYPE(
+            None, wt.HANDLE, wt.DWORD, wt.HWND, wt.LONG, wt.LONG, wt.DWORD, wt.DWORD
+        )
+
+        def callback(_hook, event, hwnd, id_object, id_child, _thread, _ms):
+            if not hwnd or id_object != 0 or id_child != 0:  # OBJID_WINDOW, CHILDID_SELF
+                return
+            if event == EVENT_OBJECT_NAMECHANGE and hwnd != user32.GetForegroundWindow():
+                return
+            self._switches.put((time.time(), hwnd))
+
+        self._hook_proc = proc_type(callback)  # keep a reference or ctypes frees it
+        user32.SetWinEventHook.restype = wt.HANDLE
+        user32.SetWinEventHook.argtypes = [
+            wt.DWORD, wt.DWORD, wt.HMODULE, proc_type, wt.DWORD, wt.DWORD, wt.DWORD,
+        ]
+        hooks = [
+            user32.SetWinEventHook(ev, ev, None, self._hook_proc, 0, 0, WINEVENT_SKIPOWNPROCESS)
+            for ev in (EVENT_SYSTEM_FOREGROUND, EVENT_OBJECT_NAMECHANGE)
+        ]
+        if not all(hooks):
+            log.warning("SetWinEventHook failed; falling back to 1 s polling only")
+            return
+        user32.GetMessageW.restype = wt.BOOL
+        user32.GetMessageW.argtypes = [ct.POINTER(wt.MSG), wt.HWND, wt.UINT, wt.UINT]
+        msg = wt.MSG()
+        while user32.GetMessageW(ct.byref(msg), None, 0, 0) > 0:
+            user32.TranslateMessage(ct.byref(msg))
+            user32.DispatchMessageW(ct.byref(msg))
+
+    def drain_switches(self) -> list[tuple[float, Foreground]]:
+        out: list[tuple[float, Foreground]] = []
+        last_hwnd = None
+        for _ in range(1000):
+            try:
+                ts, hwnd = self._switches.get_nowait()
+            except queue.Empty:
+                break
+            if not self._user32.IsWindow(hwnd):
+                continue
+            fg = self._describe(hwnd)
+            if hwnd == last_hwnd and out and out[-1][1] == fg:
+                continue
+            out.append((ts, fg))
+            last_hwnd = hwnd
+        return out
+
+    # Media -------------------------------------------------------------------------
+
+    def media_playing(self) -> bool:
+        """True if any app is currently producing sound (e.g. a lecture video)."""
+        try:
+            if not getattr(self._com, "ready", False):
+                import comtypes
+
+                comtypes.CoInitialize()
+                self._com.ready = True
+            from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
+
+            for session in AudioUtilities.GetAllSessions():
+                if session.Process is None:  # system sounds
+                    continue
+                meter = session._ctl.QueryInterface(IAudioMeterInformation)
+                if meter.GetPeakValue() > 0.001:
+                    return True
+        except Exception:
+            log.debug("Audio check failed", exc_info=True)
+        return False
 
     def _set_dpi_aware(self) -> None:
         """Use physical pixels so window rects match what mss captures."""

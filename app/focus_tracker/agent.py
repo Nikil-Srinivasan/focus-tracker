@@ -1,8 +1,9 @@
 """The collector loop: one tick per second.
 
-Each tick decides the state (active / idle / locked / paused), extends or opens
-activity and state spans, and every `screenshot_interval_s` saves one JPEG per
-monitor while active. Screens that barely changed are skipped.
+Each tick decides the state (active / watching / idle / locked / paused), records
+window switches (exact times from the Windows event hook, plus a 1 s poll as a
+safety net), and every `screenshot_interval_s` saves one JPEG per monitor while
+active or watching. Screens that barely changed are skipped.
 """
 
 from __future__ import annotations
@@ -14,14 +15,19 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from . import capture, retention
+from .browser import BrowserState, domain_matches, domain_of, sanitize_url
 from .capture import Capturer
 from .config import Config
 from .db import Store
 from .system import Foreground, System
+from .titles import clean_title
 
 log = logging.getLogger(__name__)
 
-ACTIVE, IDLE, LOCKED, PAUSED = "active", "idle", "locked", "paused"
+ACTIVE, WATCHING, IDLE, LOCKED, PAUSED = "active", "watching", "idle", "locked", "paused"
+PRESENT = (ACTIVE, WATCHING)  # states where activity is tracked and screenshots taken
+EXTENSION_SEEN_KEY = "extension_last_seen"
+EXTENSION_TRUST_S = 7 * 86400  # private-window detection only while the extension is in use
 EXCLUDED_TITLE = "[excluded]"
 CAP_CHECK_EVERY_S = 600
 CAPTURER_REFRESH_S = 600  # re-read the monitor layout (docking, plugging in)
@@ -55,6 +61,10 @@ class Span:
         self._last = now
         return self.id
 
+    @property
+    def last(self) -> float | None:
+        return self._last
+
     def close(self) -> None:
         self.key, self.id, self._last = None, None, None
 
@@ -67,6 +77,7 @@ class Agent:
         system: System,
         capturer_factory: Callable[[], Capturer],
         goal_prompter: Callable[[str], tuple[str, str] | None] | None = None,
+        browser: BrowserState | None = None,
     ):
         self.cfg = cfg
         self.store = store
@@ -86,6 +97,9 @@ class Agent:
         self._goal_lock = threading.Lock()
         self._goal_prompt_running = False
         self._goal_failed_day: str | None = None
+        self.browser = browser or BrowserState()
+        seen = store.get_meta(EXTENSION_SEEN_KEY)
+        self._extension_seen = float(seen) if seen else 0.0
         self.current_state = ACTIVE
 
     # controls (called from the tray thread)
@@ -115,28 +129,23 @@ class Agent:
         state = self._decide_state(now)
         self.current_state = state
         self.state.update(now, (state,))
+        self._note_extension(now)
 
-        fg: Foreground | None = None
+        switches = self.system.drain_switches()
         no_shot = True  # fail closed: no foreground window means no screenshot
-        if state == ACTIVE:
+        if state in PRESENT:
+            for ts, win in switches:
+                # Exact switch times between ticks; never move a span backwards.
+                self._record(min(max(ts, self.activity.last or ts), now), win)
             fg = self.system.foreground()
-            if fg is not None:
-                excluded = self._is_excluded(fg)
-                no_shot = excluded or self._is_no_screenshot(fg)
-                title = EXCLUDED_TITLE if excluded else fg.title
-                capturer = self._capturer_or_none(now)
-                monitor = capturer.monitor_index_for_rect(fg.monitor_rect) if capturer else None
-                if capturer is not None and fg.monitor_rect is not None and monitor is None:
-                    # The window is on a monitor mss does not know: the layout changed.
-                    self._reset_capturer()
-                self.activity.update(now, (fg.process, title, monitor))
-            else:
+            no_shot = self._record(now, fg) if fg is not None else True
+            if fg is None:
                 self.activity.close()
             self._maybe_ask_goal(now)
         else:
             self.activity.close()
 
-        if state == ACTIVE and not no_shot and now - self._last_shot_ts >= self.cfg.screenshot_interval_s:
+        if state in PRESENT and not no_shot and now - self._last_shot_ts >= self.cfg.screenshot_interval_s:
             self._last_shot_ts = now
             self._take_screenshots(now)
 
@@ -145,21 +154,69 @@ class Agent:
             self._last_cap_check = now
             retention.enforce_cap(self.store, self.cfg)
 
+    def _record(self, ts: float, win: Foreground) -> bool:
+        """Log one foreground window at `ts`. Returns True if it must not be screenshotted."""
+        url, private = self._browser_context(win, ts)
+        domain = domain_of(url) if url else ""
+        excluded = private or self._is_excluded(win) or domain_matches(domain, self.cfg.exclude_domains)
+        no_shot = excluded or self._is_no_screenshot(win) or domain_matches(
+            domain, self.cfg.no_screenshot_domains
+        )
+        title = EXCLUDED_TITLE if excluded else clean_title(win.title)
+        capturer = self._capturer_or_none(ts)
+        monitor = capturer.monitor_index_for_rect(win.monitor_rect) if capturer else None
+        if capturer is not None and win.monitor_rect is not None and monitor is None:
+            # The window is on a monitor mss does not know: the layout changed.
+            self._reset_capturer()
+        self.activity.update(ts, (win.process, title, monitor, None if excluded else url))
+        return no_shot
+
+    def _browser_context(self, win: Foreground, ts: float) -> tuple[str | None, bool]:
+        """(sanitized url or None, looks like a private window)."""
+        if win.process.lower() not in self.cfg.extension_browsers:
+            return None, False
+        tab = self.browser.tab_for_window(win.title)
+        if tab is not None:
+            return sanitize_url(tab.url, self.cfg.store_full_url) or None, False
+        return None, self._is_private_browser(win, ts)
+
+    def _is_private_browser(self, win: Foreground, ts: float) -> bool:
+        """A Brave window the extension does not know about. The extension reports every
+        normal window but never private ones; only trusted while the extension is in use."""
+        if win.process.lower() not in self.cfg.extension_browsers:
+            return False
+        if ts - self._extension_seen > EXTENSION_TRUST_S:
+            return False
+        return not self.browser.is_known_window(win.title)
+
+    def _note_extension(self, now: float) -> None:
+        seen = self.browser.last_seen
+        if seen and seen - self._extension_seen >= 3600:  # persist at most hourly
+            self.store.set_meta(EXTENSION_SEEN_KEY, str(seen))
+        if seen > self._extension_seen:
+            self._extension_seen = seen
+
     def _decide_state(self, now: float) -> str:
         if now < self._paused_until:
             return PAUSED
         if self.system.is_locked():
             return LOCKED
         if self.system.idle_seconds() >= self.cfg.idle_threshold_s:
+            if self.cfg.detect_media and (self.browser.audible(now) or self.system.media_playing()):
+                return WATCHING
             return IDLE
         return ACTIVE
 
-    def _blocked_monitors(self, capturer: Capturer) -> set[int] | None:
-        """Monitors showing any visible excluded / no-screenshot window, not just the
-        foreground one. None means a blocked window's monitor is unknown: skip all."""
+    def _blocked_monitors(self, capturer: Capturer, now: float) -> set[int] | None:
+        """Monitors showing any visible excluded / no-screenshot / private window, not
+        just the foreground one. None means a blocked window's monitor is unknown: skip all."""
         blocked: set[int] = set()
         for win in self.system.visible_windows():
-            if not (self._is_excluded(win) or self._is_no_screenshot(win)):
+            if not (
+                self._is_excluded(win)
+                or self._is_no_screenshot(win)
+                or self._is_private_browser(win, now)
+            ):
                 continue
             idx = capturer.monitor_index_for_rect(win.monitor_rect)
             if idx is None:
@@ -207,7 +264,7 @@ class Agent:
         if capturer is None:
             return
         try:
-            blocked = self._blocked_monitors(capturer)
+            blocked = self._blocked_monitors(capturer, now)
         except Exception:
             log.exception("Could not list visible windows; skipping screenshot")
             return

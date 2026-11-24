@@ -3,11 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from PIL import Image
-
 from focus_tracker.config import Config
 from focus_tracker.db import Store
 from focus_tracker.system import Foreground
+from PIL import Image
 
 
 class FakeSystem:
@@ -16,6 +15,8 @@ class FakeSystem:
         self.idle = 0.0
         self.locked = False
         self.others: list[Foreground] = []  # visible windows besides the foreground one
+        self.switches: list = []  # (ts, Foreground) events from the hook
+        self.media = False
 
     def foreground(self):
         return self.fg
@@ -25,6 +26,13 @@ class FakeSystem:
 
     def is_locked(self):
         return self.locked
+
+    def drain_switches(self):
+        out, self.switches = self.switches, []
+        return out
+
+    def media_playing(self):
+        return self.media
 
     def visible_windows(self):
         return ([self.fg] if self.fg else []) + self.others

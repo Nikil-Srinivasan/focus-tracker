@@ -1,0 +1,39 @@
+# Default category rules. Checked in order; the first match wins.
+# Put your own rules in rules.toml at the repo root (git-ignored): they are
+# checked before these. Each rule matches if ANY of app / title / url matches
+# (case-insensitive regular expressions); add match = "all" to require every
+# field the rule gives.
+#
+# Productive categories: "Tech/Work", "Learning", "Job search".
+# Everything else counts as a distraction.
+
+[[rule]]
+category = "Learning"
+url = "lms\\.vanakkamdsa\\.com|leetcode\\.com|neetcode\\.io|geeksforgeeks\\.org|udemy\\.com|coursera\\.org|educative\\.io|developer\\.mozilla\\.org|docs\\.python\\.org|w3schools\\.com|stackoverflow\\.com"
+title = "vanakkam dsa|leetcode|neetcode|geeksforgeeks"
+
+[[rule]]
+category = "Learning"
+match = "all"
+url = "youtube\\.com"
+title = "tutorial|course|lecture|dsa|algorithm|system design|interview|crash course"
+
+[[rule]]
+category = "Job search"
+url = "linkedin\\.com/jobs|naukri\\.com|indeed\\.com|glassdoor\\.|instahyre\\.com|wellfound\\.com|foundit\\.in|cutshort\\.io"
+
+[[rule]]
+category = "Tech/Work"
+app = "^(code|cursor|pycharm64|idea64|devenv|windowsterminal|powershell|pwsh|cmd|wsl|postman|docker desktop|github desktop|sublime_text|notepad\\+\\+)\\.exe$"
+url = "github\\.com|gitlab\\.com|localhost|127\\.0\\.0\\.1|claude\\.ai|chatgpt\\.com|vercel\\.com|supabase\\.com"
+
+[[rule]]
+category = "Communication"
+app = "^(whatsapp|telegram|discord|slack|ms-teams|teams|outlook|thunderbird)\\.exe$"
+url = "web\\.whatsapp\\.com|mail\\.google\\.com|outlook\\.live\\.com|discord\\.com|web\\.telegram\\.org"
+title = "whatsapp|gmail|inbox"
+
+[[rule]]
+category = "Entertainment"
+url = "youtube\\.com|netflix\\.com|primevideo\\.com|hotstar\\.com|jiocinema\\.com|instagram\\.com|facebook\\.com|x\\.com|twitter\\.com|reddit\\.com|spotify\\.com"
+app = "^(spotify|vlc)\\.exe$"

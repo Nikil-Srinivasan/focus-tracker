@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from conftest import FakeCapturer, FakeSystem
-
 from focus_tracker.agent import EXCLUDED_TITLE, Agent, Span
 from focus_tracker.system import Foreground
 
@@ -69,7 +68,7 @@ def test_activity_spans_merge_and_split(cfg, store):
     rows = store.query("SELECT start_ts, end_ts, process, title, monitor FROM activity ORDER BY id")
     assert rows == [
         (T0, T0 + 2, "Code.exe", "agent.py - focus-tracker", 1),
-        (T0 + 3, T0 + 4, "brave.exe", "YouTube - Brave", 2),
+        (T0 + 3, T0 + 4, "brave.exe", "YouTube", 2),
     ]
 
 
@@ -127,7 +126,7 @@ def test_no_screenshot_site_keeps_title(cfg, store):
     system.fg = Foreground("brave.exe", "Courses | Vanakkam DSA - Brave", (0, 0, 1920, 1080))
     run(agent, T0, 6)
     assert cap.grabs == 0
-    assert store.query("SELECT title FROM activity") == [("Courses | Vanakkam DSA - Brave",)]
+    assert store.query("SELECT title FROM activity") == [("Courses | Vanakkam DSA",)]
 
 
 def test_bank_and_payment_titles_are_excluded(cfg, store):
@@ -139,14 +138,14 @@ def test_bank_and_payment_titles_are_excluded(cfg, store):
 
 
 def test_excluded_window_on_other_monitor_blocks_that_monitor(cfg, store):
-    agent, system, cap = make(cfg, store)
+    agent, system, _cap = make(cfg, store)
     system.others = [Foreground("Bitwarden.exe", "Vault", (1920, 0, 3840, 1080))]
     agent.tick(T0)
     assert [m for _, m, _ in shots(store)] == [1]
 
 
 def test_bank_page_behind_on_unknown_monitor_blocks_all(cfg, store):
-    agent, system, cap = make(cfg, store)
+    agent, system, _cap = make(cfg, store)
     system.others = [Foreground("brave.exe", "ICICI Bank - Brave", None)]
     agent.tick(T0)
     assert shots(store) == []
@@ -185,7 +184,7 @@ def test_capturer_factory_failure_backs_off(cfg, store):
 
 
 def test_unknown_monitor_resets_capturer(cfg, store):
-    agent, system, cap = make(cfg, store)
+    agent, _system, cap = make(cfg, store)
     agent.tick(T0)
     cap.monitor_index_for_rect = lambda rect: None  # layout changed
     agent.tick(T0 + 1)

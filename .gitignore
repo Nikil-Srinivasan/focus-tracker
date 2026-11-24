@@ -1,6 +1,7 @@
 # Personal data: never commit
 data/
 config.toml
+rules.toml
 *.db
 *.db-wal
 *.db-shm
