@@ -14,11 +14,13 @@ import time
 from datetime import datetime, timedelta
 from typing import Callable
 
-from . import capture, retention
+from . import capture, plan, retention, review
 from .browser import BrowserState, domain_matches, domain_of, sanitize_url
 from .capture import Capturer
+from .categorize import load_rules
 from .config import Config
 from .db import Store
+from .metrics import Classifier
 from .system import Foreground, System
 from .titles import clean_title
 
@@ -32,6 +34,7 @@ EXCLUDED_TITLE = "[excluded]"
 CAP_CHECK_EVERY_S = 600
 CAPTURER_REFRESH_S = 600  # re-read the monitor layout (docking, plugging in)
 CAPTURER_RETRY_S = 60
+PLAN_CHECK_EVERY_S = 60
 
 
 class Span:
@@ -101,6 +104,7 @@ class Agent:
         self._break_prompter = break_prompter
         self._away_since: float | None = None
         self._lock = threading.RLock()  # tick() vs forget() from the dashboard thread
+        self._last_plan_check = 0.0
         self.browser = browser or BrowserState()
         seen = store.get_meta(EXTENSION_SEEN_KEY)
         self._extension_seen = float(seen) if seen else 0.0
@@ -158,6 +162,9 @@ class Agent:
             self._last_shot_ts = now
             self._take_screenshots(now)
 
+        if now - self._last_plan_check >= PLAN_CHECK_EVERY_S:
+            self._last_plan_check = now
+            self._maybe_plan(now)  # before the wipe, same weekly boundary
         retention.maybe_wipe(self.store, self.cfg, now)
         if now - self._last_cap_check >= CAP_CHECK_EVERY_S:
             self._last_cap_check = now
@@ -199,6 +206,25 @@ class Agent:
             and self._break_prompter is not None
         ):
             threading.Thread(target=self._ask_break, args=(start, now), daemon=True, name="break").start()
+
+    def _maybe_plan(self, now: float) -> None:
+        try:
+            made = plan.maybe_generate(self.store, lambda: Classifier(load_rules()), self.cfg, now)
+        except Exception:
+            log.exception("Weekly plan failed; retrying in an hour")
+            self._last_plan_check = now + 3600 - PLAN_CHECK_EVERY_S
+            return
+        if made:
+            log.info("Weekly plan saved for the week ending %s", made["end_day"])
+            if self.cfg.ai_review:
+                threading.Thread(target=self._write_review, args=(made,), daemon=True, name="review").start()
+
+    def _write_review(self, made: dict) -> None:
+        try:
+            text = review.write_review(made, self.cfg.claude_path, self.cfg.claude_timeout_s)
+            self.store.set_plan_review(made["end_day"], text)
+        except Exception as exc:
+            log.warning("AI review skipped: %s", exc)
 
     def _ask_break(self, start: float, end: float) -> None:
         try:

@@ -164,6 +164,13 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .empty { color: var(--muted); padding: 10px 0; }
 .status { color: var(--text-2); font-size: 12px; }
 
+.banner { border: 1px solid var(--border); border-left: 4px solid var(--cat-comm); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; background: var(--surface); }
+.result { font-weight: 600; white-space: nowrap; }
+.result.hit::before { content: "\2713  "; }
+.result.partial::before { content: "\25D0  "; }
+.result.missed::before { content: "\2717  "; }
+.review { white-space: pre-wrap; }
+.rank { font-size: 18px; font-weight: 600; color: var(--muted); }
 #tip {
   position: fixed; z-index: 20; pointer-events: none; max-width: 320px;
   background: var(--text); color: var(--surface); padding: 6px 8px; border-radius: 6px; font-size: 12px;

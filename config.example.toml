@@ -62,3 +62,16 @@ ask_after_break = true
 # Global hotkey that toggles a 15 min pause. Only this exact combination is
 # registered; no other keys are seen or recorded. "" turns it off.
 pause_hotkey = "ctrl+alt+p"
+
+# ---- Phase 4: weekly plan ----
+# The plan is saved every week at the wipe time above (Sunday 23:59), before the wipe.
+# Destination for deep work per day; weekly bars ramp up +30 min from your baseline.
+deep_work_goal_h = 8.0
+# Minutes charged per interruption when ranking findings (refocus cost).
+refocus_penalty_min = 10.0
+# Also ask Claude (through your Claude Code login, claude -p, no window) to write
+# a short review from the weekly numbers. Only redacted aggregates are sent.
+ai_review = false
+# Full path to claude.exe if it is not found automatically.
+claude_path = ""
+claude_timeout_s = 180

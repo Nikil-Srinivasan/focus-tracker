@@ -284,6 +284,66 @@ async function pageReplay() {
     h("div", { class: "scrub" }, play, now, slider), label, screens)];
 }
 
+function targetText(t) {
+  const what = t.key ? `${t.key}: ` : "";
+  return `${what}${t.op === "<=" ? "at most" : "at least"} ${t.value} ${t.unit}`;
+}
+let planWeek = "";
+async function pagePlan() {
+  const d = await (async () => {
+    const res = await fetch("/api/plan" + (planWeek ? `?week=${planWeek}` : ""));
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    return res.json();
+  })();
+  const showPreview = planWeek === "preview" || (!planWeek && !d.saved);
+  const p = showPreview ? d.preview : d.saved;
+  const sel = h("select", { "aria-label": "Week" },
+    h("option", { value: "preview", text: "Last 7 days (live preview, not saved)" }),
+    d.weeks.map((w) => h("option", { value: w, text: `Week ending ${w}` })));
+  sel.value = showPreview ? "preview" : p.end_day;
+  sel.addEventListener("change", () => { planWeek = sel.value; render(); });
+  const out = [h("div", { class: "actions" }, sel,
+    h("span", { class: "muted", text: showPreview ? "Saved plans are made every Sunday night, before the screenshot wipe." : `Saved ${new Date(p.created * 1000).toLocaleString()}` }))];
+  out.push(h("p", {}));
+  if (p.confidence === "low") out.push(h("div", { class: "banner", text: `Low confidence. ${p.confidence_note}` }));
+  out.push(h("div", { class: "grid" },
+    kpi("Tracked days", String(p.tracked_days), `${p.start_day} to ${p.end_day}`),
+    kpi("Active", `${p.active_h} h`),
+    kpi("Deep work", `${p.deep_h_per_day} h/day`, p.deep.target_h ? `next week's bar ${p.deep.target_h} h/day` : "baseline weeks"),
+    kpi("Best hours for deep work", p.best_hours || "–", "from the last 4 weeks")));
+  out.push(h("p", { class: "sub", text: p.deep.note }));
+  const actionRows = (list) => h("table", {},
+    h("thead", {}, h("tr", {}, h("th", { text: "#" }), h("th", { text: "Finding" }), h("th", { class: "num", text: "Cost / week" }),
+      h("th", { text: "Action" }), h("th", { text: "Target next week" }))),
+    h("tbody", {}, list.map((a, i) => h("tr", {},
+      h("td", { class: "rank", text: String(i + 1) }),
+      h("td", { text: a.finding }),
+      h("td", { class: "num", text: `${a.cost_h} h`, tip: `Score ${a.score} = ${a.cost_h} h x ${a.consistency} consistency / effort ${a.effort}` }),
+      h("td", { text: a.action }),
+      h("td", { text: targetText(a.target) })))));
+  out.push(card("Top 3 changes for next week, ranked by hours recovered",
+    p.actions.length ? actionRows(p.actions) : empty(p.tracked_days ? "No pattern big enough to act on. Keep going." : "No tracked days in this week yet.")));
+  if (p.graded.length) {
+    out.push(card("Last week's targets", h("table", {},
+      h("thead", {}, h("tr", {}, h("th", { text: "Action" }), h("th", { text: "Target" }), h("th", { class: "num", text: "Actual" }), h("th", { text: "Result" }))),
+      h("tbody", {}, p.graded.map((g) => h("tr", {}, h("td", { text: g.action }), h("td", { text: targetText(g.target) }),
+        h("td", { class: "num", text: `${g.actual} ${g.target.unit}` }), h("td", {}, h("span", { class: `result ${g.result}`, text: g.result }))))))));
+  }
+  if (p.skipped_checks.length) out.push(h("p", { class: "muted", text: `Missed twice, so swapped for the next best: ${p.skipped_checks.join(", ")}.` }));
+  if (p.other_findings.length) out.push(card("Other findings (lower score)", actionRows(p.other_findings)));
+  if (!showPreview) {
+    const status = h("span", { class: "status", text: p.review_status || "" });
+    const body = p.review ? h("div", { class: "review", text: p.review })
+      : h("div", { class: "actions" },
+        h("button", { text: "Write AI review", onclick: async () => {
+          try { await post("/api/plan/review", { week: p.end_day }); status.textContent = "Writing… (about a minute)"; setTimeout(render, 20000); }
+          catch (e) { status.textContent = `Could not start: ${e.message}`; }
+        } }), status);
+    out.push(card("AI write-up (optional)", h("p", { class: "muted", text: "Sends only these weekly numbers, redacted, to Claude through your Claude Code login. No screenshots, URLs or logs." }), body));
+  }
+  return out;
+}
+
 async function pageSettings() {
   const d = await api("/api/settings");
   const list = (items) => items.length ? h("div", { class: "tags" }, items.map((x) => h("span", { text: x }))) : h("span", { class: "muted", text: "none" });
@@ -315,7 +375,7 @@ async function pageSettings() {
 }
 
 // router -----------------------------------------------------------------------------
-const PAGES = { today: pageToday, focus: pageFocus, distractions: pageDistractions, replay: pageReplay, settings: pageSettings };
+const PAGES = { today: pageToday, focus: pageFocus, distractions: pageDistractions, replay: pageReplay, plan: pagePlan, settings: pageSettings };
 async function render() {
   const page = (location.hash.slice(1) || "today").split("?")[0];
   const fn = PAGES[page] || pageToday;

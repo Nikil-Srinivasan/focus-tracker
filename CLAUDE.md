@@ -12,7 +12,9 @@ dashboard and writes a weekly, ranked improvement plan. Nothing leaves the PC.
   `retention.py` (weekly wipe + storage cap), `browser.py` (local bridge for the
   extension), `categorize.py` + `default_rules.toml`, `titles.py`, `tray.py`, `stats.py`,
   `metrics.py` (deterministic focus metrics), `dashboard.py` (local JSON API + page),
-  `goal.py` (goal and back-from-break prompts), `web/` (plain HTML/CSS/JS, no build step).
+  `goal.py` (goal and back-from-break prompts), `web/` (plain HTML/CSS/JS, no build step),
+  `plan.py` (weekly checks, scoring, grading), `masking.py` (redaction before
+  anything goes to Claude), `review.py` (optional hidden `claude -p` write-up).
 - `extension/`: Brave MV3 extension, talks only to `http://127.0.0.1:5610/browser`.
 - `scripts/`: Windows setup/startup scripts and the personal-data guard.
 - `tests/`: pytest with fake system/capturer, runs on Linux and Windows.
@@ -49,10 +51,11 @@ python scripts/check_no_personal_data.py --all
 7. **Screenshots**: only while active or watching (not idle, locked or paused);
    all screenshots wiped weekly (Sunday 23:59 local, or next start if missed);
    hard storage cap. The activity log is kept.
-8. **Claude CLI calls** (later phases): must never flash a console window. Call
+8. **Claude CLI calls**: must never flash a console window. Call
    `claude.exe` directly (not the npm `.cmd`), use `CREATE_NO_WINDOW`, pass the
    prompt via stdin, and keep it to about 1-2 calls a day. Metrics are computed
-   locally and deterministically; Claude only narrates.
+   locally and deterministically; Claude only narrates. Only redacted weekly
+   aggregates are sent (no screenshots, URLs, raw titles lists or logs).
 
 ## Conventions
 

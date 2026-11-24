@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
 
-from . import metrics
+from . import metrics, plan, review
 from .categorize import PRODUCTIVE, load_rules
 from .config import ROOT, Config
 from .db import Store
@@ -70,6 +70,9 @@ class Dashboard:
         self._rules_lock = threading.Lock()
         self._classifier: metrics.Classifier | None = None
         self._rules_mtime: float | None = -1.0
+        self._reviews: dict[str, str] = {}  # end_day -> "running" or an error message
+        self._review_lock = threading.Lock()
+        self.review_fn = review.write_review  # replaced in tests
 
     # helpers
     def classifier(self) -> metrics.Classifier:
@@ -114,6 +117,8 @@ class Dashboard:
             return self.report(day).distractions()
         if path == "/api/replay":
             return self.replay(day)
+        if path == "/api/plan":
+            return self.plan(query.get("week"))
         if path == "/api/settings":
             return self.settings()
         raise ApiError(404, "not found")
@@ -133,6 +138,49 @@ class Dashboard:
             idx = labels.setdefault(text, len(labels))
             frames.append([round(ts, 1), monitor, shot_id, idx])
         return {"frames": frames, "labels": list(labels), "bounds": [lo, hi]}
+
+    def plan(self, week: str | None) -> dict:
+        """The saved plan for `week` (or the latest), plus a live preview of the last 7 days."""
+        if week:
+            self.parse_day(week)
+        saved = self.store.get_plan(week)
+        today = self.today()
+        preview = plan.build_plan(self.store, self.classifier(), today, self.cfg.day_rollover_hour, self.clock(),
+                                  self.cfg.refocus_penalty_min, self.cfg.deep_work_goal_h)
+        out: dict = {"weeks": self.store.plan_days(), "preview": preview, "ai_review": self.cfg.ai_review,
+                     "saved": None}
+        if saved:
+            end_day, data, text = saved
+            out["saved"] = json.loads(data)
+            out["saved"]["review"] = text
+            out["saved"]["review_status"] = self._reviews.get(end_day)
+        return out
+
+    def start_review(self, body: dict) -> dict:
+        end_day = str(body.get("week", ""))
+        self.parse_day(end_day)
+        saved = self.store.get_plan(end_day)
+        if not saved:
+            raise ApiError(404, "no saved plan for that week")
+        with self._review_lock:
+            if self._reviews.get(end_day) == "running":
+                return {"ok": True, "status": "running"}
+            if saved[2]:
+                raise ApiError(409, "this week already has a review")
+            self._reviews[end_day] = "running"
+        data = json.loads(saved[1])
+
+        def work() -> None:
+            try:
+                text = self.review_fn(data, self.cfg.claude_path, self.cfg.claude_timeout_s)
+                self.store.set_plan_review(end_day, text)
+                self._reviews.pop(end_day, None)
+            except Exception as exc:
+                log.warning("AI review failed: %s", exc)
+                self._reviews[end_day] = f"Failed: {exc}"[:300]
+
+        threading.Thread(target=work, daemon=True, name="review").start()
+        return {"ok": True, "status": "running"}
 
     def settings(self) -> dict:
         now = self.clock()
@@ -172,6 +220,8 @@ class Dashboard:
             return self.tag(body)
         if path == "/api/delete":
             return self.delete(body)
+        if path == "/api/plan/review":
+            return self.start_review(body)
         raise ApiError(404, "not found")
 
     def tag(self, body: dict) -> dict:

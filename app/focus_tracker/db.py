@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS break_label (
     label    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS break_label_start ON break_label(start_ts);
+-- Weekly plan (JSON) for the 7 tracker days ending on end_day; review = optional Claude write-up.
+CREATE TABLE IF NOT EXISTS plan (
+    end_day    TEXT PRIMARY KEY,
+    created_ts REAL NOT NULL,
+    data       TEXT NOT NULL,
+    review     TEXT
+);
 -- Daily goal; text NULL means the prompt was skipped that day.
 CREATE TABLE IF NOT EXISTS goal (
     day      TEXT PRIMARY KEY,
@@ -168,6 +175,28 @@ class Store:
             "keywords = excluded.keywords",
             (day, ts, text, keywords),
         )
+
+    # weekly plans
+    def save_plan(self, end_day: str, ts: float, data: str) -> None:
+        self._exec(
+            "INSERT INTO plan(end_day, created_ts, data) VALUES(?, ?, ?) "
+            "ON CONFLICT(end_day) DO UPDATE SET created_ts = excluded.created_ts, data = excluded.data",
+            (end_day, ts, data),
+        )
+
+    def get_plan(self, end_day: str | None = None) -> tuple[str, str, str | None] | None:
+        """(end_day, data, review) for that week, or the latest week when end_day is None."""
+        if end_day is None:
+            rows = self.query("SELECT end_day, data, review FROM plan ORDER BY end_day DESC LIMIT 1")
+        else:
+            rows = self.query("SELECT end_day, data, review FROM plan WHERE end_day = ?", (end_day,))
+        return rows[0] if rows else None
+
+    def plan_days(self) -> list[str]:
+        return [r[0] for r in self.query("SELECT end_day FROM plan ORDER BY end_day DESC")]
+
+    def set_plan_review(self, end_day: str, review: str) -> None:
+        self._exec("UPDATE plan SET review = ? WHERE end_day = ?", (review, end_day))
 
     # break labels
     def add_break_label(self, start_ts: float, end_ts: float, label: str) -> None:
