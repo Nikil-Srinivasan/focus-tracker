@@ -9,7 +9,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw
 
-from .agent import ACTIVE, Agent
+from .agent import PRESENT, Agent
 
 COLORS = {"active": (46, 160, 67), "paused": (219, 154, 4), "other": (130, 130, 130)}
 
@@ -52,7 +52,7 @@ def run_tray(agent: Agent, stop: threading.Event) -> None:
         if agent.paused_until > time.time():
             key = "paused"
         else:
-            key = "active" if agent.current_state == ACTIVE else "other"
+            key = "active" if agent.current_state in PRESENT else "other"
         icon.icon = _icon(COLORS[key])
         icon.update_menu()
 

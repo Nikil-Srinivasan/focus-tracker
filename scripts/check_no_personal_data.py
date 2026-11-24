@@ -15,7 +15,7 @@ BLOCKED_SUFFIXES = (
     ".db", ".db-wal", ".db-shm", ".sqlite", ".sqlite3", ".log",
 )
 BLOCKED_PREFIXES = ("data/",)
-BLOCKED_NAMES = ("config.toml",)
+BLOCKED_NAMES = ("config.toml", "rules.toml")
 
 
 def blocked(paths: list[str]) -> list[str]:

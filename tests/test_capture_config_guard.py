@@ -4,10 +4,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from PIL import Image
-
 from focus_tracker import capture
 from focus_tracker.config import load_config
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from check_no_personal_data import blocked  # noqa: E402

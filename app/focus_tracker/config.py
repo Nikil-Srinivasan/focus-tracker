@@ -42,6 +42,18 @@ DEFAULT_NO_SCREENSHOT_TITLE_KEYWORDS = [
 ]
 
 
+DEFAULT_EXCLUDE_DOMAINS = [
+    "onlinesbi.sbi",
+    "sbi.co.in",
+    "icicibank.com",
+    "razorpay.com",
+    "paytm.com",
+    "phonepe.com",
+    "pay.google.com",
+]
+DEFAULT_NO_SCREENSHOT_DOMAINS = ["lms.vanakkamdsa.com"]
+
+
 @dataclass
 class Config:
     data_dir: Path = ROOT / "data"
@@ -62,6 +74,16 @@ class Config:
     no_screenshot_title_keywords: list[str] = field(
         default_factory=lambda: list(DEFAULT_NO_SCREENSHOT_TITLE_KEYWORDS)
     )
+    # Browser extension bridge (phase 2)
+    extension_port: int = 5610
+    extension_browsers: list[str] = field(default_factory=lambda: ["brave.exe"])
+    store_full_url: bool = False  # False keeps scheme://host/path only
+    exclude_domains: list[str] = field(default_factory=lambda: list(DEFAULT_EXCLUDE_DOMAINS))
+    no_screenshot_domains: list[str] = field(
+        default_factory=lambda: list(DEFAULT_NO_SCREENSHOT_DOMAINS)
+    )
+    # No input but audio playing = "watching" (counts as active), not idle.
+    detect_media: bool = True
 
     @property
     def shots_dir(self) -> Path:
@@ -114,5 +136,8 @@ def load_config(path: Path | None = None) -> Config:
     cfg.exclude_processes = [p.lower() for p in cfg.exclude_processes]
     cfg.exclude_title_keywords = [k.lower() for k in cfg.exclude_title_keywords]
     cfg.no_screenshot_title_keywords = [k.lower() for k in cfg.no_screenshot_title_keywords]
+    cfg.extension_browsers = [p.lower() for p in cfg.extension_browsers]
+    cfg.exclude_domains = [d.lower() for d in cfg.exclude_domains]
+    cfg.no_screenshot_domains = [d.lower() for d in cfg.no_screenshot_domains]
     cfg.validate()
     return cfg

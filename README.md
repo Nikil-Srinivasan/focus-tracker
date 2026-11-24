@@ -12,27 +12,76 @@ lives in a git-ignored `data\` folder.
 
 | Phase | What | State |
 | --- | --- | --- |
-| 1 | Collector: windows, idle/lock, screenshots, weekly wipe, tray | **this release** |
-| 2 | Brave/Chromium extension for tab switches and URLs | planned |
+| 1 | Collector: windows, idle/lock, screenshots, weekly wipe, tray | done |
+| 2 | Brave extension (tabs, URLs), exact switch times, Watching state, categories | **this release** |
 | 3 | Local dashboard (Today, Focus, Distractions, Replay) | planned |
 | 4 | Weekly plan engine (top 3 actions, ranked by hours recovered) | planned |
 
-## What phase 1 records
+## What it records
 
 - **Activity**: one row per continuous stretch in the same app + window title +
-  monitor (polled every second).
-- **State**: active, idle (no input for 5 min), locked (lock screen, sign-in or
-  UAC prompt), paused.
-- **Screenshots**: one JPEG per monitor every 5 s, only while active. A monitor
-  that barely changed since its last saved frame is skipped.
+  monitor (+ URL for Brave). Switch times are exact (a Windows event hook), with
+  a 1 s poll as a safety net. Titles are cleaned: "(3) WhatsApp - Brave" becomes
+  "WhatsApp", so counters and unsaved markers do not split the stretch.
+- **URL** (Brave, with the extension): scheme, host and path only. Query strings
+  and fragments, where tokens live, are dropped (`store_full_url` to keep them).
+- **State**: active, watching (no input for 5 min but audio is playing, such as
+  a lecture), idle, locked (lock screen, sign-in or UAC prompt), paused.
+- **Screenshots**: one JPEG per monitor every 5 s, only while active or
+  watching. A monitor that barely changed since its last saved frame is skipped.
 - **Daily goal**: the first time you are active each day (a day starts at 4 AM),
   a small window asks for today's goal and on-goal keywords. Used by the
   insights later to tell on-goal work from drift.
 
-Never captured: keystrokes, the lock screen, password managers, private/InPrivate
-windows, bank and payment pages, or any app/title on the exclude list (see
+Never captured: any keyboard data, the lock screen, password managers, private
+windows (including Brave private windows, see below), bank and payment pages
+(by title and by domain), or any app/title/domain on the exclude list (see
 `config.example.toml`). Excluded windows are logged as `[excluded]`. A separate
-no-screenshot list skips screenshots but keeps the title, so the time still counts.
+no-screenshot list skips screenshots but keeps the title, so the time still counts
+(lms.vanakkamdsa.com is on it by default). A monitor showing any excluded,
+no-screenshot or private window is skipped even when that window is not in front.
+
+## Brave extension
+
+The extension in `extension\` tells the tracker which tab is in front (URL,
+title, audible, tab count) while a Brave window has focus, plus the titles of
+the other normal windows. It only talks to `127.0.0.1:5610`, stores nothing, and
+is never allowed in private windows. Because of that, a Brave window it does not
+know about is treated as private: logged as `[excluded]` and never screenshotted.
+
+Install once:
+
+1. Open `brave://extensions` and turn on **Developer mode** (top right).
+2. Click **Load unpacked** and pick `C:\Nikil\projects\focus-tracker\extension`.
+3. Leave "Allow in Private" off (Brave will not offer it anyway).
+
+The tracker must be running for tabs to be recorded; without the extension it
+still logs Brave by window title. If you change `extension_port` in
+`config.toml`, change it in `extension\background.js` and `manifest.json` too.
+Brave dialogs and picture-in-picture windows also count as "unknown", so they
+show as `[excluded]` (privacy errs on the safe side).
+
+## Categories
+
+Each stretch gets a category from ordered regex rules in
+`app\focus_tracker\default_rules.toml`: Learning, Job search, Tech/Work
+(productive), Communication, Entertainment, Uncategorized. Put your own rules in
+`rules.toml` at the repo root (git-ignored); they are checked first:
+
+```toml
+[[rule]]
+category = "Learning"
+url = "takeuforward\\.org"
+
+[[rule]]
+category = "Learning"
+match = "all"            # every field given must match (default: any)
+url = "youtube\\.com"
+title = "striver|graph"
+```
+
+With today's goal keywords, productive time splits into **On-goal** and
+**Off-goal**; everything else is a **Distraction**.
 
 ## Storage
 
@@ -58,7 +107,7 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 powershell -ExecutionPolicy Bypass -File scripts\install_startup.ps1
 ```
 
-Check what it recorded today:
+Check what it recorded today (time per app, category, goal fit, top sites):
 
 ```powershell
 .venv\Scripts\python.exe -m focus_tracker.stats
@@ -83,7 +132,7 @@ data\
 
 ## Privacy and the public repo
 
-- `data\`, `config.toml`, images, databases and logs are git-ignored.
+- `data\`, `config.toml`, `rules.toml`, images, databases and logs are git-ignored.
 - `scripts\setup.ps1` installs a pre-commit hook that refuses those files, and CI
   runs the same check, so a screenshot cannot be pushed by accident.
 - Screenshots can contain anything on your screen. Turning on Windows Device

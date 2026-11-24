@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "focus-tracker"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-only focus tracker for Windows: activity log, screenshots, insights."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,7 @@ dependencies = [
     "mss>=9.0",
     "Pillow>=10.0",
     "pystray>=0.19",
+    "pycaw; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +21,9 @@ dev = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]
 where = ["app"]
+
+[tool.setuptools.package-data]
+focus_tracker = ["*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

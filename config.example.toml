@@ -35,3 +35,21 @@ exclude_title_keywords = [
 # No screenshots for these window titles, but the title is still logged so the
 # time counts (e.g. a course site whose content must not be captured).
 no_screenshot_title_keywords = ["vanakkamdsa", "vanakkam dsa"]
+
+# ---- Phase 2: Brave extension and media ----
+# Port the extension posts to (must match extension/manifest.json and background.js).
+extension_port = 5610
+# Browsers running the extension. A window of these whose title matches no
+# reported tab is treated as a private window: title hidden, no screenshot.
+extension_browsers = ["brave.exe"]
+# false = store only scheme://host/path (query strings often hold tokens).
+store_full_url = false
+# Never screenshot, title hidden (also matches subdomains).
+exclude_domains = [
+    "onlinesbi.sbi", "sbi.co.in", "icicibank.com",
+    "razorpay.com", "paytm.com", "phonepe.com", "pay.google.com",
+]
+# No screenshots, but time still counts.
+no_screenshot_domains = ["lms.vanakkamdsa.com"]
+# No input but sound playing (lecture, tutorial) = "watching" instead of idle.
+detect_media = true

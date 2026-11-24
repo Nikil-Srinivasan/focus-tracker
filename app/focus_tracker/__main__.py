@@ -73,12 +73,17 @@ def main(argv: list[str] | None = None) -> None:
     _setup_logging(cfg.log_dir, args.verbose)
     lock = _single_instance(cfg.data_dir / "agent.lock")  # noqa: F841  keep the handle open
 
+    from .browser import BrowserState, start_server
     from .capture import MssCapturer
     from .goal import prompt_goal
     from .system import make_system
 
     store = Store(cfg.db_path)
-    agent = Agent(cfg, store, make_system(), MssCapturer, prompt_goal)
+    system = make_system()
+    system.start_switch_watcher()
+    browser = BrowserState()
+    server = start_server(browser, cfg.extension_port)
+    agent = Agent(cfg, store, system, MssCapturer, prompt_goal, browser)
     stop = threading.Event()
     worker = threading.Thread(target=agent.run, args=(stop,), name="agent")
     worker.start()
@@ -94,6 +99,8 @@ def main(argv: list[str] | None = None) -> None:
         pass
     finally:
         stop.set()
+        if server is not None:
+            server.shutdown()
         worker.join(10)
         if not worker.is_alive():
             store.close()
