@@ -88,6 +88,12 @@ class Config:
     dashboard_port: int = 8765
     ask_after_break: bool = True  # one-click "what was that break?" after idle/lock
     pause_hotkey: str = "ctrl+alt+p"  # toggles a 15 min pause; "" turns it off
+    # Weekly plan (phase 4)
+    deep_work_goal_h: float = 8.0  # destination; weekly bars ramp +30 min from your baseline
+    refocus_penalty_min: float = 10.0  # cost charged per interruption when ranking findings
+    ai_review: bool = False  # also ask Claude (claude -p) to narrate the weekly numbers
+    claude_path: str = ""  # optional full path to claude.exe; found automatically when empty
+    claude_timeout_s: int = 180
 
     @property
     def shots_dir(self) -> Path:
@@ -126,6 +132,12 @@ class Config:
         if self.extension_port == self.dashboard_port:
             raise ValueError("extension_port and dashboard_port must differ")
         parse_hotkey(self.pause_hotkey)
+        if not 0.5 <= self.deep_work_goal_h <= 16:
+            raise ValueError("deep_work_goal_h must be 0.5 to 16")
+        if not 0 <= self.refocus_penalty_min <= 60:
+            raise ValueError("refocus_penalty_min must be 0 to 60")
+        if not 30 <= self.claude_timeout_s <= 1800:
+            raise ValueError("claude_timeout_s must be 30 to 1800")
 
 
 HOTKEY_MODIFIERS = {"alt": 0x1, "ctrl": 0x2, "shift": 0x4, "win": 0x8}

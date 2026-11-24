@@ -14,8 +14,8 @@ lives in a git-ignored `data\` folder.
 | --- | --- | --- |
 | 1 | Collector: windows, idle/lock, screenshots, weekly wipe, tray | done |
 | 2 | Brave extension (tabs, URLs), exact switch times, Watching state, categories | done |
-| 3 | Local dashboard (Today, Focus, Distractions, Replay, Settings), break prompt, pause hotkey | **this release** |
-| 4 | Weekly plan engine (top 3 actions, ranked by hours recovered) | planned |
+| 3 | Local dashboard (Today, Focus, Distractions, Replay, Settings), break prompt, pause hotkey | done |
+| 4 | Weekly plan engine (top 3 actions, ranked by hours recovered), optional AI write-up | **this release** |
 
 ## What it records
 
@@ -110,6 +110,37 @@ Thinking, Break, Call or Distracted. Ignore it and it closes after 2 minutes.
 **Pause hotkey**: `Ctrl+Alt+P` toggles a 15 minute pause (`pause_hotkey` in
 `config.toml`; "" turns it off). Windows tells the tracker only that this exact
 combination was pressed; no other keys are seen or recorded.
+
+## Weekly plan
+
+Every Sunday at 23:59 (before the screenshot wipe, or at the next start if the
+PC was off) the tracker saves a plan for the week. The **Weekly plan** page
+shows it, plus a live preview of the last 7 days that you can read any time.
+
+1. **Checks** run on the week: biggest time sink, worst trigger (what you were
+   on right before a distraction), slow starts, chat/mail pull, rabbit holes,
+   late-day collapse and off-goal time.
+2. **Cost** in hours per week = the logged minutes plus 10 min refocus per
+   interruption (`refocus_penalty_min`).
+3. **Score** = hours x consistency (share of days showing the pattern) / effort
+   (1 = a setting, 2 = a habit, 3 = your schedule). The top 3 become actions,
+   each with one measurable target.
+4. **Grading**: next week each target is marked hit, partial (at least half way)
+   or missed. Missed twice means the action was wrong, so it is swapped for the
+   next best.
+5. **Deep-work bar**: the first 2 weeks measure your baseline; after that the
+   bar is last week's average + 30 min, up to your goal (`deep_work_goal_h`,
+   8 h). It tells you when you have plateaued and which 2 hours have been your
+   best for deep work.
+
+With fewer than 5 tracked days in a week the plan is marked **low confidence**.
+
+**Optional AI write-up** (off by default): the page has a "Write AI review"
+button, or set `ai_review = true` to run it every Sunday. It calls
+`claude -p` through your Claude Code login with no console window, and sends
+only the weekly numbers, run through a redaction filter (secrets, card, UPI,
+Aadhaar, PAN, IFSC, account, OTP, phone, e-mail). No screenshots, URLs or logs
+are ever sent. About one call a week.
 
 ## Storage
 
