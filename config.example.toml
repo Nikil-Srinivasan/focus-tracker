@@ -1,0 +1,37 @@
+# Copy to config.toml (git-ignored) and edit. Every key is optional.
+
+# Where screenshots, the database and logs go. Relative paths are from the repo root.
+data_dir = "data"
+
+screenshot_interval_s = 5
+window_poll_s = 1
+# No mouse/keyboard input for this long = idle (no screenshots, time marked idle).
+idle_threshold_s = 300
+jpeg_quality = 60
+# Skip a screenshot when a monitor barely changed since its last saved frame.
+dedupe_threshold = 2.0
+
+# Weekly wipe of ALL screenshots. weekday: 0 = Monday ... 6 = Sunday. Local time.
+wipe_weekday = 6
+wipe_time = "23:59"
+# Hard cap; oldest screenshot days are deleted first if exceeded.
+max_storage_gb = 15
+
+# A "day" starts at this hour, so working past midnight still counts as the same day.
+day_rollover_hour = 4
+ask_daily_goal = true
+
+# Never screenshot these apps; their window titles are logged as "[excluded]".
+exclude_processes = [
+    "1password.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe",
+    "consent.exe", "credentialuibroker.exe", "logonui.exe",
+]
+# Never screenshot windows whose title contains any of these (case-insensitive).
+exclude_title_keywords = [
+    "inprivate", "incognito", "private browsing", "netbanking", "net banking",
+    "onlinesbi", "state bank of india", "yono", "icici",
+    "razorpay", "paytm", "phonepe", "google pay", "payment", "checkout",
+]
+# No screenshots for these window titles, but the title is still logged so the
+# time counts (e.g. a course site whose content must not be captured).
+no_screenshot_title_keywords = ["vanakkamdsa", "vanakkam dsa"]
