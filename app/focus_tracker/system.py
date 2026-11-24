@@ -11,7 +11,7 @@ import queue
 import sys
 import threading
 import time
-from typing import NamedTuple, Protocol
+from typing import Callable, NamedTuple, Protocol
 
 log = logging.getLogger(__name__)
 
@@ -122,14 +122,20 @@ class WindowsSystem:
 
     # Event-driven switch tracking -------------------------------------------------
 
-    def start_switch_watcher(self) -> None:
-        """Hook foreground changes and title changes of the foreground window.
+    def start_switch_watcher(
+        self, hotkey: tuple[int, int] | None = None, on_hotkey: Callable[[], None] | None = None
+    ) -> None:
+        """Hook foreground changes and title changes of the foreground window, and
+        optionally register a global hotkey (RegisterHotKey: Windows reports only
+        that exact combination; no other keys are seen or recorded).
 
         Runs its own message loop thread; the callback only queues (time, hwnd).
         """
-        threading.Thread(target=self._hook_loop, daemon=True, name="winevent").start()
+        threading.Thread(
+            target=self._hook_loop, args=(hotkey, on_hotkey), daemon=True, name="winevent"
+        ).start()
 
-    def _hook_loop(self) -> None:
+    def _hook_loop(self, hotkey: tuple[int, int] | None, on_hotkey: Callable[[], None] | None) -> None:
         ct, wt, user32 = self._ct, self._wt, self._user32
         EVENT_SYSTEM_FOREGROUND, EVENT_OBJECT_NAMECHANGE = 0x0003, 0x800C
         WINEVENT_SKIPOWNPROCESS = 0x0002
@@ -155,11 +161,26 @@ class WindowsSystem:
         ]
         if not all(hooks):
             log.warning("SetWinEventHook failed; falling back to 1 s polling only")
+        WM_HOTKEY, MOD_NOREPEAT, HOTKEY_ID = 0x0312, 0x4000, 1
+        hotkey_ok = False
+        if hotkey and on_hotkey:
+            user32.RegisterHotKey.restype = wt.BOOL
+            user32.RegisterHotKey.argtypes = [wt.HWND, ct.c_int, wt.UINT, wt.UINT]
+            hotkey_ok = bool(user32.RegisterHotKey(None, HOTKEY_ID, hotkey[0] | MOD_NOREPEAT, hotkey[1]))
+            if not hotkey_ok:
+                log.warning("Pause hotkey is taken by another app; use the tray menu instead")
+        if not (any(hooks) or hotkey_ok):
             return
         user32.GetMessageW.restype = wt.BOOL
         user32.GetMessageW.argtypes = [ct.POINTER(wt.MSG), wt.HWND, wt.UINT, wt.UINT]
         msg = wt.MSG()
         while user32.GetMessageW(ct.byref(msg), None, 0, 0) > 0:
+            if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID and on_hotkey:
+                try:
+                    on_hotkey()
+                except Exception:
+                    log.exception("Pause hotkey handler failed")
+                continue
             user32.TranslateMessage(ct.byref(msg))
             user32.DispatchMessageW(ct.byref(msg))
 

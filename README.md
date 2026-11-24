@@ -13,8 +13,8 @@ lives in a git-ignored `data\` folder.
 | Phase | What | State |
 | --- | --- | --- |
 | 1 | Collector: windows, idle/lock, screenshots, weekly wipe, tray | done |
-| 2 | Brave extension (tabs, URLs), exact switch times, Watching state, categories | **this release** |
-| 3 | Local dashboard (Today, Focus, Distractions, Replay) | planned |
+| 2 | Brave extension (tabs, URLs), exact switch times, Watching state, categories | done |
+| 3 | Local dashboard (Today, Focus, Distractions, Replay, Settings), break prompt, pause hotkey | **this release** |
 | 4 | Weekly plan engine (top 3 actions, ranked by hours recovered) | planned |
 
 ## What it records
@@ -82,6 +82,34 @@ title = "striver|graph"
 
 With today's goal keywords, productive time splits into **On-goal** and
 **Off-goal**; everything else is a **Distraction**.
+
+## Dashboard
+
+Tray icon > **Open dashboard** (or left-click the icon), or browse to
+http://127.0.0.1:8765/. It only listens on your PC and loads nothing from the
+internet.
+
+| Page | Answers |
+| --- | --- |
+| Today | Active time, deep work, switches per hour, distraction, goal fit, current run; the day as a colour ribbon; session cards; break answers |
+| Focus | Focus-session lengths, context switches per hour, recovery time, a 4-week hour-of-day heatmap of deep work |
+| Distractions | Top distractions and off-goal sites, triggers (what you were on right before), communication pull, rabbit holes |
+| Replay | Both screens side by side for any moment of the day, with the window that was in front |
+| Settings | Tagging queue for apps and sites without a category (saves to `rules.toml`), current settings and exclusions |
+
+Definitions: a **deep block** is 25+ min of on-goal work where no distraction
+lasts over 60 s and you are not away over 60 s. Switches ignore flickers under
+2 s. Excluded windows count as "Private", neither on-goal nor a distraction.
+
+**Delete last hour / Delete today** (Today page) removes the activity log and
+the screenshots for that range from disk.
+
+**Back from a break** (5+ min idle or locked) a small window asks once:
+Thinking, Break, Call or Distracted. Ignore it and it closes after 2 minutes.
+
+**Pause hotkey**: `Ctrl+Alt+P` toggles a 15 minute pause (`pause_hotkey` in
+`config.toml`; "" turns it off). Windows tells the tracker only that this exact
+combination was pressed; no other keys are seen or recorded.
 
 ## Storage
 

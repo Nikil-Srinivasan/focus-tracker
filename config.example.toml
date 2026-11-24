@@ -53,3 +53,12 @@ exclude_domains = [
 no_screenshot_domains = ["lms.vanakkamdsa.com"]
 # No input but sound playing (lecture, tutorial) = "watching" instead of idle.
 detect_media = true
+
+# ---- Phase 3: dashboard and prompts ----
+# Dashboard at http://127.0.0.1:<port>/ (tray icon > Open dashboard).
+dashboard_port = 8765
+# After an idle or locked stretch of 5+ min, ask once: Thinking / Break / Call / Distracted.
+ask_after_break = true
+# Global hotkey that toggles a 15 min pause. Only this exact combination is
+# registered; no other keys are seen or recorded. "" turns it off.
+pause_hotkey = "ctrl+alt+p"

@@ -78,6 +78,7 @@ class Agent:
         capturer_factory: Callable[[], Capturer],
         goal_prompter: Callable[[str], tuple[str, str] | None] | None = None,
         browser: BrowserState | None = None,
+        break_prompter: Callable[[float], str | None] | None = None,
     ):
         self.cfg = cfg
         self.store = store
@@ -97,6 +98,9 @@ class Agent:
         self._goal_lock = threading.Lock()
         self._goal_prompt_running = False
         self._goal_failed_day: str | None = None
+        self._break_prompter = break_prompter
+        self._away_since: float | None = None
+        self._lock = threading.RLock()  # tick() vs forget() from the dashboard thread
         self.browser = browser or BrowserState()
         seen = store.get_meta(EXTENSION_SEEN_KEY)
         self._extension_seen = float(seen) if seen else 0.0
@@ -126,7 +130,12 @@ class Agent:
 
     # main step
     def tick(self, now: float) -> None:
+        with self._lock:
+            self._tick(now)
+
+    def _tick(self, now: float) -> None:
         state = self._decide_state(now)
+        self._track_break(now, state)
         self.current_state = state
         self.state.update(now, (state,))
         self._note_extension(now)
@@ -153,6 +162,51 @@ class Agent:
         if now - self._last_cap_check >= CAP_CHECK_EVERY_S:
             self._last_cap_check = now
             retention.enforce_cap(self.store, self.cfg)
+
+    def forget(self, lo: float, hi: float) -> int:
+        """Delete everything recorded in [lo, hi): log rows and screenshot files.
+        Returns the number of screenshots removed."""
+        with self._lock:
+            # Close the open spans so the next tick cannot stretch a row back over the gap.
+            self.activity.close()
+            self.state.close()
+            shots = self.store.delete_range(lo, hi)
+            for _id, rel in shots:
+                try:
+                    (self.cfg.shots_dir / rel).unlink(missing_ok=True)
+                except OSError:
+                    log.warning("Could not delete a screenshot file", exc_info=True)
+            self._thumbs.clear()
+            if self._away_since is not None and self._away_since >= lo:
+                self._away_since = None
+        log.info("Deleted %d screenshots and the log for a range of %.0f min", len(shots), (hi - lo) / 60)
+        return len(shots)
+
+    def _track_break(self, now: float, state: str) -> None:
+        """After an idle or locked stretch of at least the idle threshold, ask once what it was."""
+        if state in (IDLE, LOCKED):
+            if self._away_since is None:
+                # Idle is noticed only after the threshold: the break began at the last input.
+                idle = self.system.idle_seconds() if state == IDLE else 0.0
+                self._away_since = now - min(idle, self.cfg.idle_threshold_s)
+            return
+        start, self._away_since = self._away_since, None
+        if (
+            state == ACTIVE
+            and start is not None
+            and now - start >= self.cfg.idle_threshold_s
+            and self.cfg.ask_after_break
+            and self._break_prompter is not None
+        ):
+            threading.Thread(target=self._ask_break, args=(start, now), daemon=True, name="break").start()
+
+    def _ask_break(self, start: float, end: float) -> None:
+        try:
+            label = self._break_prompter(end - start)
+            if label:
+                self.store.add_break_label(start, end, label)
+        except Exception:
+            log.exception("Break prompt failed")
 
     def _record(self, ts: float, win: Foreground) -> bool:
         """Log one foreground window at `ts`. Returns True if it must not be screenshotted."""

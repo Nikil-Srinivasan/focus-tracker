@@ -84,6 +84,10 @@ class Config:
     )
     # No input but audio playing = "watching" (counts as active), not idle.
     detect_media: bool = True
+    # Dashboard and prompts (phase 3)
+    dashboard_port: int = 8765
+    ask_after_break: bool = True  # one-click "what was that break?" after idle/lock
+    pause_hotkey: str = "ctrl+alt+p"  # toggles a 15 min pause; "" turns it off
 
     @property
     def shots_dir(self) -> Path:
@@ -116,6 +120,31 @@ class Config:
             raise ValueError("max_storage_gb must be greater than 0")
         if not 0 <= self.day_rollover_hour <= 23:
             raise ValueError("day_rollover_hour must be 0 to 23")
+        for name in ("extension_port", "dashboard_port"):
+            if not 1024 <= getattr(self, name) <= 65535:
+                raise ValueError(f"{name} must be 1024 to 65535")
+        if self.extension_port == self.dashboard_port:
+            raise ValueError("extension_port and dashboard_port must differ")
+        parse_hotkey(self.pause_hotkey)
+
+
+HOTKEY_MODIFIERS = {"alt": 0x1, "ctrl": 0x2, "shift": 0x4, "win": 0x8}
+
+
+def parse_hotkey(text: str) -> tuple[int, int] | None:
+    """"ctrl+alt+p" -> (modifier flags, virtual-key code); "" -> None (off)."""
+    if not text.strip():
+        return None
+    parts = [p.strip().lower() for p in text.split("+")]
+    *mods, key = parts
+    if not mods or any(m not in HOTKEY_MODIFIERS for m in mods):
+        raise ValueError(f"pause_hotkey needs modifiers from {sorted(HOTKEY_MODIFIERS)}: {text!r}")
+    if len(key) != 1 or not key.isalnum() or not key.isascii():
+        raise ValueError(f"pause_hotkey must end with one letter or digit: {text!r}")
+    flags = 0
+    for m in mods:
+        flags |= HOTKEY_MODIFIERS[m]
+    return flags, ord(key.upper())
 
 
 def load_config(path: Path | None = None) -> Config:

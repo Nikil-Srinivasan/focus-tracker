@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS screenshot (
     deleted     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS screenshot_ts ON screenshot(ts);
+-- Answer to the back-from-break prompt for one idle/locked stretch.
+CREATE TABLE IF NOT EXISTS break_label (
+    id       INTEGER PRIMARY KEY,
+    start_ts REAL NOT NULL,
+    end_ts   REAL NOT NULL,
+    label    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS break_label_start ON break_label(start_ts);
 -- Daily goal; text NULL means the prompt was skipped that day.
 CREATE TABLE IF NOT EXISTS goal (
     day      TEXT PRIMARY KEY,
@@ -160,3 +168,46 @@ class Store:
             "keywords = excluded.keywords",
             (day, ts, text, keywords),
         )
+
+    # break labels
+    def add_break_label(self, start_ts: float, end_ts: float, label: str) -> None:
+        self._exec(
+            "INSERT INTO break_label(start_ts, end_ts, label) VALUES(?, ?, ?)", (start_ts, end_ts, label)
+        )
+
+    # forget a time range (dashboard "delete this hour / today")
+    def delete_range(self, lo: float, hi: float) -> list[tuple[int, str]]:
+        """Remove [lo, hi) from activity, state and break rows (rows that straddle an
+        edge are trimmed) and return the live screenshots in it as (id, path) so the
+        caller can delete the files."""
+        with self._lock:
+            shots = self._conn.execute(
+                "SELECT id, path FROM screenshot WHERE deleted = 0 AND ts >= ? AND ts < ?", (lo, hi)
+            ).fetchall()
+            self._conn.execute("BEGIN")
+            try:
+                for table in ("activity", "state", "break_label"):
+                    inside = f"FROM {table} WHERE start_ts >= ? AND end_ts < ?"
+                    if table == "activity":
+                        self._conn.execute(
+                            f"UPDATE screenshot SET activity_id = NULL WHERE activity_id IN (SELECT id {inside})",
+                            (lo, hi),
+                        )
+                    self._conn.execute(f"DELETE {inside}", (lo, hi))
+                    # Straddles the start (or the whole range): keep the part before lo.
+                    self._conn.execute(
+                        f"UPDATE {table} SET end_ts = ? WHERE start_ts < ? AND end_ts >= ?", (lo, lo, lo)
+                    )
+                    # Straddles the end: keep the part after hi.
+                    self._conn.execute(
+                        f"UPDATE {table} SET start_ts = ? WHERE start_ts >= ? AND start_ts < ? AND end_ts >= ?",
+                        (hi, lo, hi, hi),
+                    )
+                self._conn.execute(
+                    "UPDATE screenshot SET deleted = 1 WHERE deleted = 0 AND ts >= ? AND ts < ?", (lo, hi)
+                )
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+        return shots
