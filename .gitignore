@@ -1,0 +1,20 @@
+# Personal data: never commit
+data/
+config.toml
+*.db
+*.db-wal
+*.db-shm
+*.sqlite*
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
