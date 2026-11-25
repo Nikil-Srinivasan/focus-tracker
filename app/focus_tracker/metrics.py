@@ -2,7 +2,9 @@
 
 Definitions follow the plan (thresholds are constants so weeks compare honestly):
 - Deep block: 25+ min of On-goal time; a non-On-goal visit over 60 s, or a gap
-  (idle, locked, paused) over 60 s, ends it.
+  (idle, locked, paused) over 60 s, ends it. Study tools (notes, AI chat, web
+  search) that match no goal keyword cannot start a block but keep one going for
+  up to 15 min in a row; they count as On-goal inside any On-goal run, else Off-goal.
 - Switches: app switches (process changes) and tab switches (title changes inside
   a browser), after dropping flickers under 2 s.
 - Context switch: category change. Focus session: run of one category.
@@ -22,6 +24,8 @@ from .db import Store
 
 DEEP_MIN_S = 25 * 60
 MAX_INTERRUPT_S = 60
+MAX_SUPPORT_S = 15 * 60
+SUPPORT = "Support"
 MAX_GAP_S = 60
 FLICKER_S = 2
 TRIGGER_WINDOW_S = 120
@@ -119,18 +123,24 @@ def present_spans(store: Store, lo: float, hi: float) -> list[tuple[float, float
 
 
 def deep_blocks(segs: list[Seg]) -> list[Block]:
+    """Deep blocks, plus resolving each Support segment to On-goal (inside an On-goal
+    run of any length) or Off-goal (outside one). Mutates seg.fit."""
     blocks: list[Block] = []
     cur: Block | None = None
-    off_run = 0.0
+    off_run = support_run = 0.0
     first_off: Seg | None = None
     prev_end: float | None = None
 
     def close(reason: str) -> None:
         nonlocal cur
-        if cur is not None and cur.dur >= DEEP_MIN_S:
-            cur.interrupted_by = reason
+        if cur is not None:
             cur.segs = [s for s in cur.segs if s.start < cur.end]
-            blocks.append(cur)
+            for s in cur.segs:
+                if s.fit == SUPPORT:
+                    s.fit = "On-goal"
+            if cur.dur >= DEEP_MIN_S:
+                cur.interrupted_by = reason
+                blocks.append(cur)
         cur = None
 
     for s in segs:
@@ -140,7 +150,15 @@ def deep_blocks(segs: list[Seg]) -> list[Block]:
             if cur is None:
                 cur = Block(s.start, s.end)
             cur.end = max(cur.end, s.end)
-            off_run, first_off = 0.0, None
+            off_run = support_run = 0.0
+            first_off = None
+        elif s.fit == SUPPORT and cur is not None:
+            support_run += s.dur
+            if support_run > MAX_SUPPORT_S:
+                close(s.label)
+            else:
+                cur.end = max(cur.end, s.end)
+                off_run, first_off = 0.0, None
         elif cur is not None:
             off_run += s.dur
             first_off = first_off or s
@@ -149,8 +167,14 @@ def deep_blocks(segs: list[Seg]) -> list[Block]:
                 off_run, first_off = 0.0, None
         if cur is not None:
             cur.segs.append(s)
+        else:
+            off_run = support_run = 0.0
+            first_off = None
         prev_end = s.end if prev_end is None else max(prev_end, s.end)
     close("still going")
+    for s in segs:
+        if s.fit == SUPPORT:
+            s.fit = "Off-goal"
     return blocks
 
 

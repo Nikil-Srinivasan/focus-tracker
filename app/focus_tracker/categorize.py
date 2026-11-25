@@ -10,7 +10,11 @@ from pathlib import Path
 
 from .config import ROOT
 
-PRODUCTIVE = {"Tech/Work", "Learning", "Job search"}
+PRODUCTIVE = {"Tech/Work", "Learning", "Job search", "Study tools"}
+# Helpers that serve whatever the goal is (notes, AI chat, web search). Without a
+# keyword match they are "Support": they keep an on-goal block going but cannot
+# start one (metrics.deep_blocks decides, then relabels them On- or Off-goal).
+SUPPORT = {"Study tools"}
 UNCATEGORIZED = "Uncategorized"
 
 
@@ -68,13 +72,16 @@ def categorize(rules: list[Rule], process: str, title: str, url: str = "") -> st
 
 
 def goal_fit(category: str, process: str, title: str, url: str, keywords: list[str]) -> str:
-    """'On-goal', 'Off-goal' or 'Distraction'. Without a goal, productive time is On-goal."""
+    """'On-goal', 'Off-goal', 'Support' or 'Distraction'. Without a goal, productive
+    time is On-goal."""
     if category not in PRODUCTIVE:
         return "Distraction"
     if not keywords:
         return "On-goal"
     haystack = f"{process} {title} {url}".lower()
-    return "On-goal" if any(k in haystack for k in keywords) else "Off-goal"
+    if any(k in haystack for k in keywords):
+        return "On-goal"
+    return "Support" if category in SUPPORT else "Off-goal"
 
 
 def parse_keywords(raw: str | None) -> list[str]:
