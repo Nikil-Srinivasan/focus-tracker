@@ -15,7 +15,8 @@ lives in a git-ignored `data\` folder.
 | 1 | Collector: windows, idle/lock, screenshots, weekly wipe, tray | done |
 | 2 | Brave extension (tabs, URLs), exact switch times, Watching state, categories | done |
 | 3 | Local dashboard (Today, Focus, Distractions, Replay, Settings), break prompt, pause hotkey | done |
-| 4 | Weekly plan engine (top 3 actions, ranked by hours recovered), optional AI write-up | **this release** |
+| 4 | Weekly plan engine (top 3 actions, ranked by hours recovered), optional AI write-up | done |
+| 5 | Screen-text reading (local OCR) to tell a YouTube lecture from entertainment | **this release** |
 
 ## What it records
 
@@ -88,6 +89,43 @@ Google/Bing search results) serve whatever you are learning, so they need no
 keyword: inside an on-goal run (lecture, LeetCode) they count as on-goal and keep
 a deep block going for up to 15 min in a row. On their own they cannot start a
 block and count as off-goal, so random searches or chats don't count.
+
+## Screen text (OCR)
+
+Titles and sites don't say whether a YouTube video is a DSA lecture or a vlog, or
+what a vague `main.py` or PDF window was about. So the tracker also reads the text
+on its **saved screenshot files**, with the OCR built into Windows 11 (offline,
+no GPU). It never captures the screen for this: it only opens JPEGs that were
+already saved, so whatever is never screenshotted (bank and payment pages,
+lms.vanakkamdsa.com, private windows, idle, locked, paused) is never read.
+
+- **Which frames**: every saved screenshot of the monitor showing the window in
+  front. Unchanged screens are not saved, so they are not read again. It runs on
+  a low-priority background thread, not in the capture loop.
+- **What it decides**: each frame is scored against the `[[content]]` word lists
+  in `default_rules.toml` (Learning: tutorial, lecture, algorithm, recursion, ...;
+  Entertainment: vlog, lyrics, trailer, prank, ...). A frame needs 3 different
+  words of one list and 2 more than of the other; the stretch takes what most
+  deciding frames say. Only rules marked `content = true` (YouTube by default)
+  and apps or sites with no rule can be re-sorted, so VS Code never becomes
+  "Entertainment" because a comment says "music".
+- **Daily goal**: if a goal keyword is on screen in at least a third of a
+  stretch's frames, productive time there counts as on-goal even when the title
+  is vague.
+- **What is stored**: never the text. Only the verdict and the few list words that
+  matched (for example `Learning (algorithm, array, recursion)`) on the activity
+  row, shown in Replay. Deleting an hour or a day deletes it with the row.
+  Nothing from the screen text goes to the log or to Claude.
+- Add your own words in `rules.toml`:
+
+  ```toml
+  [[content]]
+  category = "Learning"
+  words = ["takeuforward", "striver"]
+  ```
+
+- Turn it off with `ocr = false` in `config.toml`. It is off by itself if the
+  Windows OCR language pack is missing (English is installed with Windows).
 
 ## Dashboard
 

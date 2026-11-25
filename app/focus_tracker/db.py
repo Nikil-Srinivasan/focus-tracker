@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS activity (
     process  TEXT NOT NULL,
     title    TEXT NOT NULL,
     monitor  INTEGER,
-    url      TEXT
+    url      TEXT,
+    -- Verdict from text read on its screenshots (OCR); the text itself is never stored.
+    content_cat   TEXT,
+    content_terms TEXT,
+    content_goal  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS activity_start ON activity(start_ts);
 -- One row per continuous stretch of active / idle / locked / paused.
@@ -78,6 +82,13 @@ class Store:
             cols = {row[1] for row in self._conn.execute("PRAGMA table_info(activity)")}
             if "url" not in cols:  # added in phase 2
                 self._conn.execute("ALTER TABLE activity ADD COLUMN url TEXT")
+            for col, decl in (  # added with screen-text reading
+                ("content_cat", "TEXT"),
+                ("content_terms", "TEXT"),
+                ("content_goal", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if col not in cols:
+                    self._conn.execute(f"ALTER TABLE activity ADD COLUMN {col} {decl}")
 
     def close(self) -> None:
         with self._lock:
@@ -136,6 +147,21 @@ class Store:
             (ts, monitor, path, size, activity_id),
         )
         return int(cur.lastrowid)
+
+    def activity_for_screenshot(self, shot_id: int) -> int | None:
+        """The activity row a live screenshot belongs to (None once deleted or unlinked)."""
+        rows = self.query("SELECT activity_id FROM screenshot WHERE id = ? AND deleted = 0", (shot_id,))
+        return rows[0][0] if rows else None
+
+    def set_activity_content(
+        self, shot_id: int, category: str | None, terms: str | None, goal: bool
+    ) -> None:
+        """Store the screen-text verdict on the row of a screenshot that is still live."""
+        self._exec(
+            "UPDATE activity SET content_cat = ?, content_terms = ?, content_goal = ? WHERE id = "
+            "(SELECT activity_id FROM screenshot WHERE id = ? AND deleted = 0)",
+            (category, terms, int(goal), shot_id),
+        )
 
     def live_screenshots_before(self, ts: float) -> list[tuple[int, str]]:
         return self.query(

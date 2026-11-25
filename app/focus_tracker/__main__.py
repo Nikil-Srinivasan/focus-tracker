@@ -58,6 +58,30 @@ def _show_error(message: str) -> None:
         ctypes.windll.user32.MessageBoxW(None, message, "Focus tracker", 0x10)
 
 
+def _start_ocr(cfg, store: Store, stop: threading.Event):
+    """The background screen-text reader, or None when off or unavailable."""
+    if not cfg.ocr:
+        return None
+    from .categorize import load_content
+    from .ocr import OcrWorker, make_engine
+
+    engine = make_engine()
+    if engine is None:
+        return None
+    rules_path = ROOT / "rules.toml"
+
+    def rules_mtime() -> float | None:
+        try:
+            return rules_path.stat().st_mtime
+        except OSError:
+            return None
+
+    worker = OcrWorker(store, engine, lambda: load_content(rules_path), rules_mtime)
+    worker.start(stop)
+    logging.getLogger(__name__).info("Screen-text reading (OCR) is on")
+    return worker
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="focus_tracker", description=__doc__)
     parser.add_argument("--config", type=Path, help="path to config.toml")
@@ -87,7 +111,9 @@ def main(argv: list[str] | None = None) -> None:
     system = make_system()
     browser = BrowserState()
     server = start_server(browser, cfg.extension_port)
-    agent = Agent(cfg, store, system, MssCapturer, prompt_goal, browser, prompt_break)
+    stop = threading.Event()
+    ocr_worker = _start_ocr(cfg, store, stop)
+    agent = Agent(cfg, store, system, MssCapturer, prompt_goal, browser, prompt_break, ocr_worker)
 
     def toggle_pause() -> None:
         if agent.paused_until > time.time():
@@ -98,7 +124,6 @@ def main(argv: list[str] | None = None) -> None:
     system.start_switch_watcher(parse_hotkey(cfg.pause_hotkey), toggle_pause)
     dashboard = start_dashboard(Dashboard(cfg, store, agent), cfg.dashboard_port)
     dashboard_url = f"http://127.0.0.1:{cfg.dashboard_port}/" if dashboard else None
-    stop = threading.Event()
     worker = threading.Thread(target=agent.run, args=(stop,), name="agent")
     worker.start()
     try:
@@ -117,6 +142,8 @@ def main(argv: list[str] | None = None) -> None:
             if srv is not None:
                 srv.shutdown()
         worker.join(10)
+        if ocr_worker is not None:
+            ocr_worker.join(10)  # finish the frame being read before the store closes
         if not worker.is_alive():
             store.close()
 

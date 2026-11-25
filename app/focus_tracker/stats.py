@@ -10,7 +10,7 @@ import argparse
 from datetime import datetime, timedelta
 
 from .browser import domain_of
-from .categorize import categorize, goal_fit, load_rules, parse_keywords
+from .categorize import categorize_with_content, goal_fit, load_rules, parse_keywords
 from .config import load_config
 from .db import Store
 
@@ -58,14 +58,14 @@ def main() -> None:
     by_cat: dict[str, float] = {}
     by_fit: dict[str, float] = {}
     by_domain: dict[str, float] = {}
-    for process, title, url, secs in store.query(
-        "SELECT process, title, COALESCE(url, ''), end_ts - start_ts FROM activity "
-        "WHERE start_ts >= ? AND start_ts < ?",
+    for process, title, url, content_cat, content_goal, secs in store.query(
+        "SELECT process, title, COALESCE(url, ''), content_cat, content_goal, end_ts - start_ts "
+        "FROM activity WHERE start_ts >= ? AND start_ts < ?",
         (lo, hi),
     ):
-        cat = categorize(rules, process, title, url)
+        cat = categorize_with_content(rules, process, title, url, content_cat)
         by_cat[cat] = by_cat.get(cat, 0) + secs
-        fit = goal_fit(cat, process, title, url, keywords)
+        fit = goal_fit(cat, process, title, url, keywords, bool(content_goal))
         by_fit[fit] = by_fit.get(fit, 0) + secs
         if url:
             d = domain_of(url)

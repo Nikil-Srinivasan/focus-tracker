@@ -11,6 +11,10 @@
 # chat, a web search). With a daily goal set they never start a deep block on
 # their own, but up to 15 min in a row of them keeps an on-goal block going
 # (and counts as on-goal). Outside a block they count as off-goal.
+#
+# content = true lets the text read from saved screenshots (OCR) re-sort a
+# rule's matches, using the [[content]] word lists at the bottom. Apps and sites
+# that match no rule can be re-sorted the same way.
 
 [[rule]]
 category = "Study tools"
@@ -44,7 +48,47 @@ app = "^(whatsapp|telegram|discord|slack|ms-teams|teams|outlook|thunderbird)\\.e
 url = "web\\.whatsapp\\.com|mail\\.google\\.com|outlook\\.live\\.com|discord\\.com|web\\.telegram\\.org"
 title = "whatsapp|gmail|inbox"
 
+# Any other YouTube page: Entertainment unless the screen text says Learning.
 [[rule]]
 category = "Entertainment"
-url = "youtube\\.com|netflix\\.com|primevideo\\.com|hotstar\\.com|jiocinema\\.com|instagram\\.com|facebook\\.com|x\\.com|twitter\\.com|reddit\\.com|spotify\\.com"
+url = "youtube\\.com"
+title = " - YouTube$"
+content = true
+
+[[rule]]
+category = "Entertainment"
+url = "netflix\\.com|primevideo\\.com|hotstar\\.com|jiocinema\\.com|instagram\\.com|facebook\\.com|x\\.com|twitter\\.com|reddit\\.com|spotify\\.com"
 app = "^(spotify|vlc)\\.exe$"
+
+# Screen-text word lists (OCR). A stretch is re-sorted only when a screenshot
+# shows at least 3 different words of one list and at least 2 more than of any
+# other list, and most of the stretch's screenshots that decided anything agree. Whole words,
+# case-insensitive, a plural "s" is fine. Add your own in rules.toml with the same
+# shape; they are merged. YouTube's own menus ("Shorts", "Gaming", "Movies",
+# "Podcasts") are left out on purpose.
+
+[[content]]
+category = "Learning"
+words = [
+    "tutorial", "lecture", "lesson", "course", "explained", "explanation", "for beginners",
+    "crash course", "full course", "step by step", "intuition", "dry run", "pseudocode",
+    "algorithm", "data structure", "dsa", "array",
+    "linked list", "binary search", "binary tree", "bfs", "dfs", "recursion", "backtracking",
+    "dynamic programming", "memoization", "greedy", "sliding window", "two pointers", "hashmap",
+    "hash map", "heap", "sorting", "time complexity", "space complexity", "big o", "leetcode",
+    "neetcode", "striver", "interview", "system design", "function", "variable", "return",
+    "python", "java", "javascript", "typescript", "c++", "sql", "database", "api", "react",
+    "docker", "kubernetes", "operating system", "computer networks", "dbms", "oops", "compiler",
+    "debugging",
+]
+
+[[content]]
+category = "Entertainment"
+words = [
+    "vlog", "official video", "official music video", "music video", "lyrics", "lyric video",
+    "song", "album", "remix", "trailer", "teaser", "reaction", "reacts", "prank",
+    "funny", "comedy", "meme", "roast", "gameplay", "let's play", "walkthrough",
+    "minecraft", "gta", "bgmi", "free fire", "highlights", "match highlights", "ipl", "cricket",
+    "football", "movie", "full movie", "web series", "episode", "netflix", "bigg boss",
+    "unboxing", "mukbang", "celebrity", "gossip", "asmr", "travel vlog", "food vlog",
+]

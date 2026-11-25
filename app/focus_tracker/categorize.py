@@ -25,6 +25,7 @@ class Rule:
     title: re.Pattern | None
     url: re.Pattern | None
     match_all: bool = False  # match = "all": every given field must match (default: any)
+    content: bool = False  # content = true: text read from the screen may re-sort it
 
     def matches(self, process: str, title: str, url: str) -> bool:
         checks = [
@@ -47,36 +48,82 @@ def _compile(raw: dict) -> Rule:
     match = str(raw.get("match", "any")).lower()
     if match not in ("any", "all"):
         raise ValueError(f'rule match must be "any" or "all": {raw}')
-    return Rule(raw["category"], rx("app"), rx("title"), rx("url"), match == "all")
+    content = raw.get("content", False)
+    if not isinstance(content, bool):
+        raise ValueError(f"rule content must be true or false: {raw}")
+    return Rule(raw["category"], rx("app"), rx("title"), rx("url"), match == "all", content)
 
 
 def parse_rules(text: str) -> list[Rule]:
     return [_compile(r) for r in tomllib.loads(text).get("rule", [])]
 
 
+def _rule_texts(user_path: Path | None) -> list[str]:
+    """rules.toml at the repo root (checked first), then the defaults."""
+    user_path = user_path or ROOT / "rules.toml"
+    texts = [user_path.read_text(encoding="utf-8")] if user_path.exists() else []
+    texts.append(resources.files(__package__).joinpath("default_rules.toml").read_text("utf-8"))
+    return texts
+
+
 def load_rules(user_path: Path | None = None) -> list[Rule]:
     """User rules (rules.toml at the repo root) first, then the defaults."""
-    user_path = user_path or ROOT / "rules.toml"
-    rules: list[Rule] = []
-    if user_path.exists():
-        rules += parse_rules(user_path.read_text(encoding="utf-8"))
-    rules += parse_rules(resources.files(__package__).joinpath("default_rules.toml").read_text("utf-8"))
-    return rules
+    return [rule for text in _rule_texts(user_path) for rule in parse_rules(text)]
+
+
+def parse_content(text: str) -> dict[str, list[str]]:
+    """[[content]] tables: category -> words or phrases that point to it on screen."""
+    out: dict[str, list[str]] = {}
+    for raw in tomllib.loads(text).get("content", []):
+        category, words = raw.get("category"), raw.get("words")
+        if not isinstance(category, str) or not isinstance(words, list) or not all(
+            isinstance(w, str) for w in words
+        ):
+            raise ValueError(f"content needs a category and a list of words: {raw}")
+        out.setdefault(category, []).extend(w.strip().lower() for w in words if w.strip())
+    return out
+
+
+def load_content(user_path: Path | None = None) -> dict[str, list[str]]:
+    """Screen-text word lists from rules.toml and the defaults, merged per category."""
+    merged: dict[str, list[str]] = {}
+    for text in _rule_texts(user_path):
+        for category, words in parse_content(text).items():
+            merged.setdefault(category, []).extend(w for w in words if w not in merged.get(category, []))
+    return merged
+
+
+def match_rule(rules: list[Rule], process: str, title: str, url: str = "") -> Rule | None:
+    for rule in rules:
+        if rule.matches(process, title, url):
+            return rule
+    return None
 
 
 def categorize(rules: list[Rule], process: str, title: str, url: str = "") -> str:
-    for rule in rules:
-        if rule.matches(process, title, url):
-            return rule.category
-    return UNCATEGORIZED
+    rule = match_rule(rules, process, title, url)
+    return rule.category if rule else UNCATEGORIZED
 
 
-def goal_fit(category: str, process: str, title: str, url: str, keywords: list[str]) -> str:
+def categorize_with_content(
+    rules: list[Rule], process: str, title: str, url: str, content_cat: str | None
+) -> str:
+    """The rule's category, unless the rule allows it (content = true, or no rule
+    matched) and the screen text decided a category for this stretch."""
+    rule = match_rule(rules, process, title, url)
+    if content_cat and (rule is None or rule.content):
+        return content_cat
+    return rule.category if rule else UNCATEGORIZED
+
+
+def goal_fit(
+    category: str, process: str, title: str, url: str, keywords: list[str], on_screen: bool = False
+) -> str:
     """'On-goal', 'Off-goal', 'Support' or 'Distraction'. Without a goal, productive
-    time is On-goal."""
+    time is On-goal. on_screen: a goal keyword was read on the screen most of the time."""
     if category not in PRODUCTIVE:
         return "Distraction"
-    if not keywords:
+    if not keywords or on_screen:
         return "On-goal"
     haystack = f"{process} {title} {url}".lower()
     if any(k in haystack for k in keywords):

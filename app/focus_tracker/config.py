@@ -94,6 +94,9 @@ class Config:
     ai_review: bool = False  # also ask Claude (claude -p) to narrate the weekly numbers
     claude_path: str = ""  # optional full path to claude.exe; found automatically when empty
     claude_timeout_s: int = 180
+    # Read text on saved screenshots (Windows OCR, local) to re-sort YouTube and
+    # unknown apps and to spot goal keywords. The text is never stored.
+    ocr: bool = True
 
     @property
     def shots_dir(self) -> Path:
@@ -138,6 +141,8 @@ class Config:
             raise ValueError("refocus_penalty_min must be 0 to 60")
         if not 30 <= self.claude_timeout_s <= 1800:
             raise ValueError("claude_timeout_s must be 30 to 1800")
+        if not isinstance(self.ocr, bool):
+            raise ValueError("ocr must be true or false")
 
 
 HOTKEY_MODIFIERS = {"alt": 0x1, "ctrl": 0x2, "shift": 0x4, "win": 0x8}

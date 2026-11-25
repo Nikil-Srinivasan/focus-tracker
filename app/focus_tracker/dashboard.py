@@ -128,15 +128,18 @@ class Dashboard:
     def replay(self, day: date) -> dict:
         lo, hi = metrics.day_bounds(day, self.cfg.day_rollover_hour)
         rows = self.store.query(
-            "SELECT s.id, s.ts, s.monitor, a.process, a.title, COALESCE(a.url, '') FROM screenshot s "
+            "SELECT s.id, s.ts, s.monitor, a.process, a.title, COALESCE(a.url, ''), a.content_cat, "
+            "a.content_terms FROM screenshot s "
             "LEFT JOIN activity a ON a.id = s.activity_id "
             "WHERE s.deleted = 0 AND s.ts >= ? AND s.ts < ? ORDER BY s.ts, s.monitor",
             (lo, hi),
         )
         labels: dict[str, int] = {}
         frames = []
-        for shot_id, ts, monitor, process, title, url in rows:
+        for shot_id, ts, monitor, process, title, url, content_cat, terms in rows:
             text = f"{title} ({metrics.Seg(0, 0, process, title, url, '', '').label})" if process else ""
+            if text and content_cat:  # why the screen text re-sorted it
+                text += f" · screen text: {content_cat} ({terms})"
             idx = labels.setdefault(text, len(labels))
             frames.append([round(ts, 1), monitor, shot_id, idx])
         return {"frames": frames, "labels": list(labels), "bounds": [lo, hi]}

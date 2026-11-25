@@ -75,3 +75,7 @@ ai_review = false
 # Full path to claude.exe if it is not found automatically.
 claude_path = ""
 claude_timeout_s = 180
+
+# Read text on saved screenshots (Windows OCR, local) to tell a YouTube lecture
+# from entertainment and spot goal keywords. The text itself is never stored.
+ocr = true
