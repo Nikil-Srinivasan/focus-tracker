@@ -3,7 +3,7 @@
 // (window titles, sites) is untrusted and goes in via textContent only.
 
 const TOKEN = document.querySelector('meta[name="focus-token"]').content;
-const CATS = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment", "Uncategorized", "Private"];
+const CATS = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment", "Other", "Private"];
 const main = document.getElementById("main");
 const dayInput = document.getElementById("day");
 const tip = document.getElementById("tip");
@@ -377,20 +377,26 @@ async function pageSettings() {
   const status = h("span", { class: "status", text: flash });
   flash = "";
   const queue = d.queue.length ? h("table", {},
-    h("thead", {}, h("tr", {}, h("th", { text: "App or site" }), h("th", { text: "Example title" }), h("th", { class: "num", text: "7 days" }), h("th", { text: "Category" }))),
+    h("thead", {}, h("tr", {}, h("th", { text: "Site or app" }), h("th", { text: "Page or window" }), h("th", { class: "num", text: "7 days" }), h("th", { text: "Category" }))),
     h("tbody", {}, d.queue.map((q) => {
       const sel = h("select", { "aria-label": `Category for ${q.key}` }, h("option", { value: "", text: "Choose…" }), d.categories.map((c) => h("option", { value: c, text: c })));
+      const all = h("input", { type: "checkbox", "aria-label": `Use for all of ${q.key}` });
       const save = h("button", { text: "Save", onclick: async () => {
         if (!sel.value) return;
-        try { await post("/api/tag", { kind: q.kind, key: q.key, category: sel.value }); flash = `${q.key} is now ${sel.value}.`; render(); }
-        catch (e) { status.textContent = `Could not save: ${e.message}`; }
+        const scope = all.checked ? "all" : "page";
+        try {
+          await post("/api/tag", { kind: q.kind, key: q.key, title: q.title, scope, category: sel.value });
+          flash = scope === "all" ? `All of ${q.key} is now ${sel.value}.` : `That page is now ${sel.value}.`;
+          render();
+        } catch (e) { status.textContent = `Could not save: ${e.message}`; }
       } });
       return h("tr", {}, h("td", { text: `${q.key} (${q.kind})` }), h("td", { class: "muted", text: q.example }),
-        h("td", { class: "num", text: mins(q.minutes) }), h("td", {}, h("div", { class: "actions" }, sel, save)));
-    }))) : empty("Everything you used in the last 7 days has a category.");
+        h("td", { class: "num", text: mins(q.minutes) }),
+        h("td", {}, h("div", { class: "actions" }, sel, h("label", { class: "muted" }, all, ` all of ${q.key}`), save)));
+    }))) : empty("Everything in the last 7 days was sorted by its screen text or a rule.");
   return [
     privacyCard(d.today),
-    card("Tagging queue (uncategorised apps and sites)", h("p", { class: "muted", text: `Saving adds a rule to ${d.rules_file} (git-ignored). Productive: ${d.productive.join(", ")}.` }), queue, status),
+    card("Not sure (Other): check these", h("p", { class: "muted", text: `Most time is sorted from the screen text. These pages could not be: pick a category for that page, or tick the box for the whole site or app. Saved to ${d.rules_file} (git-ignored); your choice beats the screen text. Productive: ${d.productive.join(", ")}.` }), queue, status),
     card("Current settings (edit config.toml, then restart the tracker)", h("table", {}, h("tbody", {},
       [["Screenshots", `every ${d.screenshot_interval_s} s while active`], ["Idle after", `${d.idle_threshold_min} min`],
        ["Weekly wipe", d.wipe], ["Storage", `${d.storage_gb} GB of ${d.max_storage_gb} GB cap`], ["Day starts", d.day_starts],

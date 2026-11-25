@@ -24,9 +24,9 @@ def test_learning_loop_tools_are_study_tools(tmp_path):
     for what in (LMS, LMS_NO_URL, LEETCODE):
         assert categorize(rules, *what) == "Learning", what
     # the Google home page, Gmail and YouTube are not study tools
-    assert categorize(rules, "brave.exe", "Google", "https://www.google.com/") == "Uncategorized"
+    assert categorize(rules, "brave.exe", "Google", "https://www.google.com/") == "Other"
     assert categorize(rules, "brave.exe", "Inbox - Gmail", "https://mail.google.com/mail/u/0/") == "Communication"
-    assert categorize(rules, *YT_FUN) == "Entertainment"
+    assert categorize(rules, *YT_FUN) == "Other"  # left to the screen text
 
 
 def test_goal_fit_support_only_for_study_tools():

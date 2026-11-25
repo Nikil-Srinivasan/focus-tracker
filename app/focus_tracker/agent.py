@@ -83,8 +83,10 @@ class Agent:
         goal_prompter: Callable[[str], tuple[str, str] | None] | None = None,
         browser: BrowserState | None = None,
         break_prompter: Callable[[float], str | None] | None = None,
+        ocr=None,  # ocr.OcrWorker: reads the saved screenshot files in the background
     ):
         self.cfg = cfg
+        self.ocr = ocr
         self.store = store
         self.system = system
         self._capturer_factory = capturer_factory
@@ -180,6 +182,8 @@ class Agent:
             # Close the open spans so the next tick cannot stretch a row back over the gap.
             self.activity.close()
             self.state.close()
+            if self.ocr is not None:
+                self.ocr.drop_pending()
             shots = self.store.delete_range(lo, hi, day)
             removed = 0
             for _id, rel in shots:
@@ -410,7 +414,10 @@ class Agent:
                 log.exception("Could not save %s", rel)
                 continue
             self._thumbs[monitor] = thumb
-            self.store.add_screenshot(now, monitor, rel, size, self.activity.id)
+            shot_id = self.store.add_screenshot(now, monitor, rel, size, self.activity.id)
+            # Only the monitor showing the foreground window says what this stretch is.
+            if self.ocr is not None and self.activity.key is not None and monitor == self.activity.key[2]:
+                self.ocr.submit(shot_id, self.cfg.shots_dir / rel, self.day_key(now))
 
     def _maybe_ask_goal(self, now: float) -> None:
         if not self.cfg.ask_daily_goal or self._goal_prompter is None:

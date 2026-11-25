@@ -1,6 +1,8 @@
-# Default category rules. Checked in order; the first match wins.
-# Put your own rules in rules.toml at the repo root (git-ignored): they are
-# checked before these. Each rule matches if ANY of app / title / url matches
+# Built-in category rules, used only when the screen text (OCR of saved
+# screenshots) did not decide a stretch: the same app or site can be work or
+# play, so what is on screen wins. Nothing matched and nothing decided = Other.
+# Your own rules in rules.toml at the repo root (git-ignored) win over both.
+# These are checked in order; the first match wins. Each rule matches if ANY of app / title / url matches
 # (case-insensitive regular expressions); add match = "all" to require every
 # field the rule gives.
 #
@@ -46,5 +48,66 @@ title = "whatsapp|gmail|inbox"
 
 [[rule]]
 category = "Entertainment"
-url = "youtube\\.com|netflix\\.com|primevideo\\.com|hotstar\\.com|jiocinema\\.com|instagram\\.com|facebook\\.com|x\\.com|twitter\\.com|reddit\\.com|spotify\\.com"
+url = "netflix\\.com|primevideo\\.com|hotstar\\.com|jiocinema\\.com|instagram\\.com|facebook\\.com|x\\.com|twitter\\.com|reddit\\.com|spotify\\.com"
 app = "^(spotify|vlc)\\.exe$"
+
+# Screen-text word lists (OCR). One screenshot decides a category when it shows
+# at least 3 different words of that list and at least 2 more than any list on
+# the other side (productive vs not). Between two productive lists the bigger
+# count wins. A stretch takes what most of its deciding screenshots say. Whole
+# words, case-insensitive, a plural "s" is fine. Add your own in rules.toml with
+# the same shape; they are merged. YouTube's own menus ("Shorts", "Gaming",
+# "Movies", "Podcasts") are left out on purpose.
+
+[[content]]
+category = "Learning"
+words = [
+    "tutorial", "lecture", "lesson", "course", "explained", "explanation", "for beginners",
+    "crash course", "full course", "step by step", "intuition", "dry run", "pseudocode",
+    "algorithm", "data structure", "dsa", "array",
+    "linked list", "binary search", "binary tree", "bfs", "dfs", "recursion", "backtracking",
+    "dynamic programming", "memoization", "greedy", "sliding window", "two pointers", "hashmap",
+    "hash map", "heap", "sorting", "time complexity", "space complexity", "big o", "leetcode",
+    "neetcode", "striver", "interview", "system design", "function", "variable", "return",
+    "python", "java", "javascript", "typescript", "c++", "sql", "database", "api", "react",
+    "docker", "kubernetes", "operating system", "computer networks", "dbms", "oops", "compiler",
+    "debugging",
+]
+
+[[content]]
+category = "Tech/Work"
+words = [
+    "import", "def", "const", "async", "await", "console.log", "npm", "pip install",
+    "traceback", "exception", "stack trace", "pull request", "commit", "branch",
+    "repository", "terminal", "localhost", "deploy", "deployment", "dockerfile", "yaml",
+    "json", "endpoint", "unit test", "pytest", "build failed", "lint", "refactor", "readme",
+    "visual studio code", "github", "stack overflow", "documentation", "changelog",
+]
+
+[[content]]
+category = "Job search"
+words = [
+    "easy apply", "apply now", "job description", "years of experience", "responsibilities",
+    "requirements", "qualifications", "salary", "ctc", "lpa", "recruiter", "hiring",
+    "we are hiring", "job opening", "notice period", "resume", "cover letter", "applicants",
+    "full-time", "hybrid", "naukri", "linkedin jobs",
+]
+
+[[content]]
+category = "Communication"
+words = [
+    "type a message", "last seen", "unread", "inbox", "compose",
+    "reply all", "drafts", "new chat", "group info", "voice message",
+    "missed call", "muted", "archived chats",
+]
+
+[[content]]
+category = "Entertainment"
+words = [
+    "vlog", "official video", "official music video", "music video", "lyrics", "lyric video",
+    "song", "album", "remix", "trailer", "teaser", "reaction", "reacts", "prank",
+    "funny", "comedy", "meme", "roast", "gameplay", "let's play", "walkthrough",
+    "minecraft", "gta", "bgmi", "free fire", "highlights", "match highlights", "ipl", "cricket",
+    "football", "movie", "full movie", "web series", "episode", "netflix", "bigg boss",
+    "unboxing", "mukbang", "celebrity", "gossip", "asmr", "travel vlog", "food vlog",
+]

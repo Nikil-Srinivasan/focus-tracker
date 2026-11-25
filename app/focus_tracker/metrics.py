@@ -19,7 +19,14 @@ from datetime import date, datetime, timedelta
 from functools import lru_cache
 
 from .browser import domain_of
-from .categorize import UNCATEGORIZED, Rule, categorize, goal_fit, parse_keywords
+from .categorize import (  # noqa: F401  categorize is re-exported
+    UNCATEGORIZED,
+    Rule,
+    categorize,
+    categorize_with_content,
+    goal_fit,
+    parse_keywords,
+)
 from .db import Store
 
 DEEP_MIN_S = 25 * 60
@@ -86,31 +93,35 @@ def day_of(ts: float, rollover_hour: int) -> date:
 
 
 class Classifier:
-    """Caches categorize() per distinct (process, title, url); rules are fixed per instance."""
+    """Caches the category per distinct (process, title, url, screen-text verdict);
+    rules are fixed per instance."""
 
     def __init__(self, rules: list[Rule]):
-        self._cat = lru_cache(maxsize=50_000)(lambda p, t, u: categorize(rules, p, t, u))
+        self._cat = lru_cache(maxsize=50_000)(
+            lambda p, t, u, c: categorize_with_content(rules, p, t, u, c)
+        )
 
-    def category(self, process: str, title: str, url: str) -> str:
-        return self._cat(process, title, url)
+    def category(self, process: str, title: str, url: str, content_cat: str | None = None) -> str:
+        return self._cat(process, title, url, content_cat or None)
 
 
 def load_segments(
     store: Store, classifier: Classifier, lo: float, hi: float, keywords: list[str]
 ) -> list[Seg]:
     rows = store.query(
-        "SELECT start_ts, end_ts, process, title, COALESCE(url, '') FROM activity "
-        "WHERE end_ts >= ? AND start_ts < ? ORDER BY start_ts, id",
+        "SELECT start_ts, end_ts, process, title, COALESCE(url, ''), content_cat, content_goal "
+        "FROM activity WHERE end_ts >= ? AND start_ts < ? ORDER BY start_ts, id",
         (lo, hi),
     )
     out = []
-    for start, end, process, title, url in rows:
+    for start, end, process, title, url, content_cat, content_goal in rows:
         start, end = max(start, lo), min(end, hi)
         if title == EXCLUDED_TITLE:
             out.append(Seg(start, end, process, title, url, PRIVATE, PRIVATE))
             continue
-        cat = classifier.category(process, title, url)
-        out.append(Seg(start, end, process, title, url, cat, goal_fit(cat, process, title, url, keywords)))
+        cat = classifier.category(process, title, url, content_cat)
+        fit = goal_fit(cat, process, title, url, keywords, bool(content_goal))
+        out.append(Seg(start, end, process, title, url, cat, fit))
     return out
 
 
@@ -430,18 +441,19 @@ def heatmap(store: Store, classifier: Classifier, end_day: date, rollover_hour: 
 
 
 def uncategorized(store: Store, classifier: Classifier, lo: float, hi: float, limit: int = 25) -> list[dict]:
-    """Apps and sites without a category, most time first: the tagging queue."""
-    totals: dict[tuple[str, str], list] = {}
+    """Pages and apps the screen text and rules could not sort (Other), most time
+    first: the review queue. One row per site or app + window title, because the
+    same site can be work on one page and play on another."""
+    totals: dict[tuple[str, str, str], float] = {}
     for s in load_segments(store, classifier, lo, hi, []):
         if s.category != UNCATEGORIZED:
             continue
         domain = domain_of(s.url) if s.url else ""
-        key = ("site", domain) if domain else ("app", s.process.lower())
-        entry = totals.setdefault(key, [0.0, s.title])
-        entry[0] += s.dur
-    ranked = sorted(totals.items(), key=lambda kv: -kv[1][0])[:limit]
+        key = ("site", domain, s.title) if domain else ("app", s.process.lower(), s.title)
+        totals[key] = totals.get(key, 0.0) + s.dur
+    ranked = sorted(totals.items(), key=lambda kv: -kv[1])[:limit]
     return [
-        {"kind": k[0], "key": k[1], "minutes": round(v[0] / 60, 1), "example": v[1][:80]}
+        {"kind": k[0], "key": k[1], "title": k[2][:300], "example": k[2][:80], "minutes": round(v / 60, 1)}
         for k, v in ranked
-        if v[0] >= 60
+        if v >= 60
     ]

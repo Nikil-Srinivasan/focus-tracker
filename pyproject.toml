@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "focus-tracker"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local-only focus tracker for Windows: activity log, screenshots, insights."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,6 +14,14 @@ dependencies = [
     "Pillow>=10.0",
     "pystray>=0.19",
     "pycaw; sys_platform == 'win32'",
+    # Built-in Windows OCR for reading saved screenshots (local, no GPU)
+    "winrt-runtime>=4.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections; sys_platform == 'win32'",
+    "winrt-Windows.Globalization; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging; sys_platform == 'win32'",
+    "winrt-Windows.Media.Ocr; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
