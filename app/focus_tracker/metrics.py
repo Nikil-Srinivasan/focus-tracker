@@ -441,18 +441,19 @@ def heatmap(store: Store, classifier: Classifier, end_day: date, rollover_hour: 
 
 
 def uncategorized(store: Store, classifier: Classifier, lo: float, hi: float, limit: int = 25) -> list[dict]:
-    """Apps and sites without a category, most time first: the tagging queue."""
-    totals: dict[tuple[str, str], list] = {}
+    """Pages and apps the screen text and rules could not sort (Other), most time
+    first: the review queue. One row per site or app + window title, because the
+    same site can be work on one page and play on another."""
+    totals: dict[tuple[str, str, str], float] = {}
     for s in load_segments(store, classifier, lo, hi, []):
         if s.category != UNCATEGORIZED:
             continue
         domain = domain_of(s.url) if s.url else ""
-        key = ("site", domain) if domain else ("app", s.process.lower())
-        entry = totals.setdefault(key, [0.0, s.title])
-        entry[0] += s.dur
-    ranked = sorted(totals.items(), key=lambda kv: -kv[1][0])[:limit]
+        key = ("site", domain, s.title) if domain else ("app", s.process.lower(), s.title)
+        totals[key] = totals.get(key, 0.0) + s.dur
+    ranked = sorted(totals.items(), key=lambda kv: -kv[1])[:limit]
     return [
-        {"kind": k[0], "key": k[1], "minutes": round(v[0] / 60, 1), "example": v[1][:80]}
+        {"kind": k[0], "key": k[1], "title": k[2][:300], "example": k[2][:80], "minutes": round(v / 60, 1)}
         for k, v in ranked
-        if v[0] >= 60
+        if v >= 60
     ]

@@ -118,6 +118,16 @@ def test_goal_keywords_match_whole_words_only():
     assert not goal_on_screen("anything", [])
 
 
+def test_tally_counts_productive_votes_together():
+    t = _Tally()
+    t.add("Learning", ["dsa", "lecture", "array"], False)
+    t.add("Tech/Work", ["import", "def", "pytest"], False)
+    t.add("Learning", ["recursion", "lecture", "dsa"], False)
+    t.add("Entertainment", ["vlog", "song", "prank"], False)
+    cat, terms, _ = t.verdict()
+    assert cat == "Learning" and "import" not in terms  # words of the winner only
+
+
 def test_tally_needs_a_majority_of_deciding_frames():
     t = _Tally()
     t.add("Learning", ["dsa", "array", "lecture"], False)
@@ -137,18 +147,40 @@ def test_tally_needs_a_majority_of_deciding_frames():
 # --- rules ---------------------------------------------------------------------------
 
 
-def test_content_flag_only_lets_flagged_rules_and_unknown_apps_be_resorted():
-    rules = load_rules(Path("/nonexistent/rules.toml"))
-    assert categorize_with_content(rules, "brave.exe", "Lofi - YouTube", "", None) == "Entertainment"
-    assert categorize_with_content(rules, "brave.exe", "Lofi - YouTube", "", "Learning") == "Learning"
-    assert categorize_with_content(rules, "brave.exe", "x", "https://www.youtube.com/watch", "Learning") == "Learning"
-    # VS Code can never become Entertainment because of text on screen.
-    assert categorize_with_content(rules, "Code.exe", "main.py", "", "Entertainment") == "Tech/Work"
-    # Netflix is not flagged.
-    assert categorize_with_content(rules, "brave.exe", "x", "https://netflix.com/", "Learning") == "Entertainment"
-    # An unknown app is.
+def test_your_rules_then_screen_text_then_built_in_rules_then_other(tmp_path):
+    user = tmp_path / "rules.toml"
+    user.write_text('[[rule]]\ncategory = "Learning"\nurl = "reddit\\\\.com/r/learnprogramming"\n', encoding="utf-8")
+    rules = load_rules(user)
+    yt = ("brave.exe", "Lofi beats", "https://www.youtube.com/watch")
+    # YouTube with no confident screen text is Other: it can be either.
+    assert categorize_with_content(rules, *yt, None) == "Other"
+    assert categorize_with_content(rules, *yt, "Learning") == "Learning"
+    assert categorize_with_content(rules, *yt, "Entertainment") == "Entertainment"
+    # The screen text beats a built-in rule, both ways.
+    assert categorize_with_content(rules, "brave.exe", "x", "https://www.reddit.com/r/python", "Learning") == "Learning"
+    assert categorize_with_content(rules, "brave.exe", "x", "https://www.reddit.com/r/memes", None) == "Entertainment"
+    assert categorize_with_content(rules, "Code.exe", "main.py", "", None) == "Tech/Work"
+    # Your rule beats the screen text.
+    mine = ("brave.exe", "x", "https://www.reddit.com/r/learnprogramming/")
+    assert categorize_with_content(rules, *mine, "Entertainment") == "Learning"
+    # Unknown app, nothing on screen decided: Other.
+    assert categorize_with_content(rules, "SumatraPDF.exe", "notes.pdf", "", None) == "Other"
     assert categorize_with_content(rules, "SumatraPDF.exe", "notes.pdf", "", "Learning") == "Learning"
-    assert categorize_with_content(rules, "SumatraPDF.exe", "notes.pdf", "", None) == "Uncategorized"
+
+
+def test_two_productive_lists_do_not_cancel_out():
+    m = defaults()
+    text = "Python tutorial: import json, def parse, pytest unit test, recursion lecture"
+    cat, _ = m.classify(text)
+    assert cat in {"Learning", "Tech/Work"}
+    # but productive vs not still needs a clear lead
+    assert m.classify("python tutorial lecture, funny prank reaction")[0] is None
+
+
+def test_job_and_chat_pages_are_recognised():
+    m = defaults()
+    assert m.classify("Easy Apply · 2-4 years of experience · Salary 12 LPA · Recruiter")[0] == "Job search"
+    assert m.classify("Type a message   last seen today   Archived chats   Unread")[0] == "Communication"
 
 
 def test_goal_on_screen_makes_productive_time_on_goal_only():
@@ -166,8 +198,7 @@ def test_user_content_lists_merge_and_bad_shapes_are_rejected(tmp_path):
     assert "vlog" in lists["Entertainment"]
     with pytest.raises(ValueError):
         parse_content('[[content]]\ncategory = "Learning"\nwords = "dsa"\n')
-    with pytest.raises(ValueError):
-        parse_rules('[[rule]]\ncategory = "Learning"\nurl = "x"\ncontent = "yes"\n')
+    assert all(r.user for r in parse_rules('[[rule]]\ncategory = "Learning"\nurl = "x"\n', user=True))
 
 
 def test_ocr_config_must_be_a_bool(tmp_path):
@@ -339,3 +370,29 @@ def test_replay_label_says_why_the_screen_text_resorted_it(cfg, store, tmp_path)
     labels = dash.get("/api/replay", {})["labels"]
     assert labels[0].startswith("Striver DP 1 - YouTube")
     assert "screen text: Learning (" in labels[0] and "dynamic programming" in labels[0]
+
+
+def test_review_queue_is_per_page_and_page_tags_only_fix_that_page(cfg, store, tmp_path):
+    from focus_tracker.dashboard import ApiError, Dashboard
+
+    agent = Agent(cfg, store, FakeSystem(), lambda: FakeCapturer(), None)
+    dash = Dashboard(cfg, store, agent, rules_path=tmp_path / "rules.toml", clock=lambda: T0 + 3600)
+    tricky = 'Mix "best" \\ songs \' 2026 - YouTube'
+    for i, title in enumerate(["Striver graph series - YouTube", tricky]):
+        aid = store.open_activity(T0 + i * 600, "brave.exe", title, 1, "https://www.youtube.com/watch")
+        store.extend_activity(aid, T0 + i * 600 + 300)
+    queue = dash.get("/api/settings", {})["queue"]
+    assert {q["title"] for q in queue} == {"Striver graph series - YouTube", tricky}
+    assert all(q["key"] == "www.youtube.com" and q["kind"] == "site" for q in queue)
+
+    dash.post("/api/tag", {"kind": "site", "key": "www.youtube.com", "title": tricky,
+                           "scope": "page", "category": "Entertainment"})
+    rules = load_rules(tmp_path / "rules.toml")  # still valid TOML with quotes and backslashes
+    assert categorize_with_content(rules, "brave.exe", tricky, "https://www.youtube.com/watch", "Learning") == "Entertainment"
+    assert categorize_with_content(rules, "brave.exe", "Other video - YouTube", "https://www.youtube.com/watch", None) == "Other"
+    assert [q["title"] for q in dash.get("/api/settings", {})["queue"]] == ["Striver graph series - YouTube"]
+
+    for bad in ({"title": "x\x7f"}, {"title": "a\nb"}, {"title": ""}, {"title": "[excluded]"}, {"scope": "nope"}):
+        body = {"kind": "site", "key": "www.youtube.com", "title": "ok", "scope": "page", "category": "Learning", **bad}
+        with pytest.raises(ApiError):
+            dash.post("/api/tag", body)

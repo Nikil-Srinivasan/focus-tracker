@@ -94,8 +94,8 @@ class Config:
     ai_review: bool = False  # also ask Claude (claude -p) to narrate the weekly numbers
     claude_path: str = ""  # optional full path to claude.exe; found automatically when empty
     claude_timeout_s: int = 180
-    # Read text on saved screenshots (Windows OCR, local) to re-sort YouTube and
-    # unknown apps and to spot goal keywords. The text is never stored.
+    # Read text on saved screenshots (Windows OCR, local) to sort every app and site
+    # by what was on screen and to spot goal keywords. The text is never stored.
     ocr: bool = True
 
     @property

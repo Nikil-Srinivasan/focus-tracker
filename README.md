@@ -64,10 +64,21 @@ show as `[excluded]` (privacy errs on the safe side).
 
 ## Categories
 
-Each stretch gets a category from ordered regex rules in
-`app\focus_tracker\default_rules.toml`: Learning, Job search, Tech/Work, Study tools
-(productive), Communication, Entertainment, Uncategorized. Put your own rules in
-`rules.toml` at the repo root (git-ignored); they are checked first:
+Categories: Learning, Job search, Tech/Work, Study tools (productive),
+Communication, Entertainment, and **Other** (not sure). Each stretch is sorted in
+this order, first answer wins:
+
+1. **Your rules** in `rules.toml` at the repo root (git-ignored), including what
+   you pick on the Settings page.
+2. **What was on screen** (see [Screen text](#screen-text-ocr)). The same app or
+   site can be work or play, so this beats the built-in rules.
+3. **Built-in rules** in `app\focus_tracker\default_rules.toml` (VS Code, LeetCode,
+   the LMS, job sites, WhatsApp, Netflix, ...), for stretches the screen text could
+   not decide or that are never screenshotted (the LMS).
+4. Otherwise **Other**. Settings lists these pages so you can pick a category for
+   that page, or for the whole site or app.
+
+You don't have to tag anything up front. Rules look like this:
 
 ```toml
 [[rule]]
@@ -93,22 +104,25 @@ block and count as off-goal, so random searches or chats don't count.
 ## Screen text (OCR)
 
 Titles and sites don't say whether a YouTube video is a DSA lecture or a vlog, or
-what a vague `main.py` or PDF window was about. So the tracker also reads the text
-on its **saved screenshot files**, with the OCR built into Windows 11 (offline,
-no GPU). It never captures the screen for this: it only opens JPEGs that were
-already saved, so whatever is never screenshotted (bank and payment pages,
-lms.vanakkamdsa.com, private windows, idle, locked, paused) is never read.
+whether a Brave tab, a PDF or a chat was work. So the tracker reads the text on
+its **saved screenshot files** with the OCR built into Windows 11 (offline, no
+GPU) and sorts every app and site by it. It never captures the screen for this:
+it only opens JPEGs that were already saved, so whatever is never screenshotted
+(bank and payment pages, lms.vanakkamdsa.com, private windows, idle, locked,
+paused) is never read.
 
 - **Which frames**: every saved screenshot of the monitor showing the window in
   front. Unchanged screens are not saved, so they are not read again. It runs on
-  a low-priority background thread, not in the capture loop.
-- **What it decides**: each frame is scored against the `[[content]]` word lists
-  in `default_rules.toml` (Learning: tutorial, lecture, algorithm, recursion, ...;
-  Entertainment: vlog, lyrics, trailer, prank, ...). A frame needs 3 different
-  words of one list and 2 more than of the other; the stretch takes what most
-  deciding frames say. Only rules marked `content = true` (YouTube by default)
-  and apps or sites with no rule can be re-sorted, so VS Code never becomes
-  "Entertainment" because a comment says "music".
+  a low-priority background thread, not in the capture loop (about 0.03 s per
+  1080p frame).
+- **How it decides**: each frame is scored against the `[[content]]` word lists
+  in `default_rules.toml`: Learning (tutorial, lecture, algorithm, recursion, ...),
+  Tech/Work (import, traceback, pull request, ...), Job search (easy apply,
+  years of experience, ...), Communication (type a message, last seen, ...) and
+  Entertainment (vlog, lyrics, trailer, prank, ...). A frame needs 3 different
+  words of one list and 2 more than the best list on the other side (productive
+  vs not). A stretch takes what most of its deciding frames say. If nothing is
+  clear, the built-in rules apply, and then it is **Other**.
 - **Daily goal**: if a goal keyword is on screen in at least a third of a
   stretch's frames, productive time there counts as on-goal even when the title
   is vague.
@@ -139,7 +153,7 @@ internet.
 | Focus | Focus-session lengths, context switches per hour, recovery time, a 4-week hour-of-day heatmap of deep work |
 | Distractions | Top distractions and off-goal sites, triggers (what you were on right before), communication pull, rabbit holes |
 | Replay | Both screens side by side for any moment of the day, with the window that was in front |
-| Settings | Tagging queue for apps and sites without a category (saves to `rules.toml`), current settings and exclusions |
+| Settings | Pages the screen text could not sort (Other): pick a category for that page or the whole site/app (saves to `rules.toml`), current settings and exclusions |
 
 Definitions: a **deep block** is 25+ min of on-goal work where no distraction
 lasts over 60 s and you are not away over 60 s. Switches ignore flickers under

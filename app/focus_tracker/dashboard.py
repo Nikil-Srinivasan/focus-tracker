@@ -230,9 +230,15 @@ class Dashboard:
         raise ApiError(404, "not found")
 
     def tag(self, body: dict) -> dict:
+        """Save your category for a page or video (scope "page": that site or app with
+        that exact title) or for a whole site or app (scope "all"). Your rules win
+        over the screen text and the built-in rules."""
         kind, key, category = body.get("kind"), str(body.get("key", "")).strip().lower(), body.get("category")
+        scope = body.get("scope", "all")
         if category not in CATEGORIES:
             raise ApiError(400, "unknown category")
+        if scope not in ("page", "all"):
+            raise ApiError(400, "scope must be page or all")
         if kind == "site" and _SITE_RE.match(key) and len(key) <= 253:
             field = "url"
             pattern = r"^[a-z]+://([^/]*\.)?" + re.escape(key) + r"(:\d+)?(/|$)"
@@ -241,12 +247,24 @@ class Dashboard:
             pattern = "^" + re.escape(key) + "$"
         else:
             raise ApiError(400, "invalid app or site")
-        # TOML literal strings: no escapes, and the validated key cannot contain a quote.
-        assert "'" not in pattern and "\n" not in pattern
-        entry = f"\n[[rule]]  # added from the dashboard\ncategory = '{category}'\n{field} = '{pattern}'\n"
+        lines = [f"category = {json.dumps(category)}", f"{field} = {json.dumps(pattern)}"]
+        if scope == "page":
+            title = body.get("title")
+            if (
+                not isinstance(title, str)
+                or not title.strip()
+                or len(title) > 300
+                or title == metrics.EXCLUDED_TITLE
+                or any(ord(c) < 0x20 or ord(c) == 0x7F for c in title)
+            ):
+                raise ApiError(400, "invalid title")
+            # JSON strings are valid TOML basic strings: quotes, backslashes and
+            # control characters in the (untrusted) title are escaped.
+            lines += ['match = "all"', f"title = {json.dumps('^' + re.escape(title) + '$', ensure_ascii=False)}"]
+        entry = "\n[[rule]]  # added from the dashboard\n" + "\n".join(lines) + "\n"
         with self._rules_lock:
             existing = self.rules_path.read_text(encoding="utf-8") if self.rules_path.exists() else (
-                "# Your own category rules, checked before the defaults (git-ignored).\n"
+                "# Your own category rules, checked before the screen text and the defaults (git-ignored).\n"
             )
             self.rules_path.write_text(existing + entry, encoding="utf-8")
             self._classifier = None

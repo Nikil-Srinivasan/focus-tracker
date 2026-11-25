@@ -237,11 +237,12 @@ def test_default_rules_categorize():
     rules = load_rules(user_path=None)
     assert categorize(rules, "brave.exe", "Start learning", "https://lms.vanakkamdsa.com/v2") == "Learning"
     assert categorize(rules, "brave.exe", "DP tutorial", "https://www.youtube.com/watch") == "Learning"
-    assert categorize(rules, "brave.exe", "Funny cats", "https://www.youtube.com/watch") == "Entertainment"
+    # YouTube without a learning title is left to the screen text (Other until it decides).
+    assert categorize(rules, "brave.exe", "Funny cats", "https://www.youtube.com/watch") == "Other"
     assert categorize(rules, "Code.exe", "agent.py", "") == "Tech/Work"
     assert categorize(rules, "brave.exe", "Jobs", "https://www.naukri.com/jobs") == "Job search"
     assert categorize(rules, "WhatsApp.exe", "WhatsApp", "") == "Communication"
-    assert categorize(rules, "foo.exe", "bar", "") == "Uncategorized"
+    assert categorize(rules, "foo.exe", "bar", "") == "Other"
 
 
 def test_user_rules_win(tmp_path):

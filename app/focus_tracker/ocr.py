@@ -1,5 +1,9 @@
 """Read text from saved screenshots (local OCR) to tell what a stretch really was.
 
+Every app and site is sorted this way first: the same app can be work or play.
+Your own rules (rules.toml) still win, and the built-in rules are only a fallback
+when the screen text decided nothing; with neither, a stretch is Other.
+
 Only JPEG files the agent already saved are read, so anything that is never
 screenshotted (excluded, no-screenshot, private, idle, locked, paused) is never
 read. The agent queues one file per changed frame, for the monitor showing the
@@ -27,7 +31,7 @@ from typing import Callable, Protocol
 
 from PIL import Image
 
-from .categorize import parse_keywords
+from .categorize import PRODUCTIVE, parse_keywords
 from .db import Store
 
 log = logging.getLogger(__name__)
@@ -75,14 +79,19 @@ class ContentMatcher:
         return found
 
     def classify(self, text: str) -> tuple[str | None, list[str]]:
-        """(category or None if undecided, the words that matched for it)."""
-        scores = {cat: self._hits(cat, text) for cat in self._patterns}
-        ranked = sorted(scores.items(), key=lambda kv: len(kv[1]), reverse=True)
-        if not ranked:
+        """(category or None if undecided, the words that matched for it).
+
+        The best list needs MIN_HITS different words and a lead of MIN_LEAD over the
+        best list on the other side (productive vs not). Two productive lists (say a
+        coding tutorial: Learning and Tech/Work words) don't cancel out: the bigger
+        count wins, ties go to the list that comes first."""
+        scores = [(cat, self._hits(cat, text)) for cat in self._patterns]
+        if not scores:
             return None, []
-        best, words = ranked[0]
-        runner_up = len(ranked[1][1]) if len(ranked) > 1 else 0
-        if len(words) >= MIN_HITS and len(words) - runner_up >= MIN_LEAD:
+        best, words = max(scores, key=lambda kv: len(kv[1]))  # first of equals wins
+        side = best in PRODUCTIVE
+        other = max((len(w) for cat, w in scores if (cat in PRODUCTIVE) != side), default=0)
+        if len(words) >= MIN_HITS and len(words) - other >= MIN_LEAD:
             return best, sorted(words)
         return None, []
 
@@ -98,26 +107,28 @@ class _Tally:
     frames: int = 0
     goal_frames: int = 0
     votes: Counter = field(default_factory=Counter)
-    terms: Counter = field(default_factory=Counter)
+    terms: dict[str, Counter] = field(default_factory=dict)  # per category
 
     def add(self, category: str | None, terms: list[str], goal: bool) -> None:
         self.frames += 1
         self.goal_frames += goal
         if category:
             self.votes[category] += 1
-            self.terms.update(terms)
+            self.terms.setdefault(category, Counter()).update(terms)
 
     def verdict(self) -> tuple[str | None, str | None, bool]:
-        """(category, matched words, goal) for the row. The category needs more votes
-        than all other categories together (frames that decided nothing, such as a
-        full-screen talking head, don't vote), so one odd screenshot cannot flip a
-        long stretch. The goal needs a keyword on at least a third of the frames."""
+        """(category, matched words, goal) for the row. Productive and other votes are
+        counted per side; the side with more than half of the deciding frames wins and
+        its most voted category is the verdict (frames that decided nothing, such as a
+        full-screen talking head, don't vote). So one odd screenshot cannot flip a long
+        stretch. The goal needs a keyword on at least a third of the frames."""
         category = None
-        if self.votes:
-            top, n = self.votes.most_common(1)[0]
-            if n * 2 > sum(self.votes.values()):
-                category = top
-        terms = ", ".join(t for t, _ in self.terms.most_common(MAX_TERMS)) if category else None
+        total = sum(self.votes.values())
+        for side in (True, False):
+            side_votes = Counter({c: n for c, n in self.votes.items() if (c in PRODUCTIVE) == side})
+            if side_votes and sum(side_votes.values()) * 2 > total:
+                category = side_votes.most_common(1)[0][0]
+        terms = ", ".join(t for t, _ in self.terms[category].most_common(MAX_TERMS)) if category else None
         return category, terms, self.goal_frames * 3 >= self.frames > 0
 
 

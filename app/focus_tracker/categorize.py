@@ -15,7 +15,7 @@ PRODUCTIVE = {"Tech/Work", "Learning", "Job search", "Study tools"}
 # keyword match they are "Support": they keep an on-goal block going but cannot
 # start one (metrics.deep_blocks decides, then relabels them On- or Off-goal).
 SUPPORT = {"Study tools"}
-UNCATEGORIZED = "Uncategorized"
+UNCATEGORIZED = "Other"  # nothing decided: no rule and no confident screen text
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,7 @@ class Rule:
     title: re.Pattern | None
     url: re.Pattern | None
     match_all: bool = False  # match = "all": every given field must match (default: any)
-    content: bool = False  # content = true: text read from the screen may re-sort it
+    user: bool = False  # from rules.toml (your corrections): beats the screen text
 
     def matches(self, process: str, title: str, url: str) -> bool:
         checks = [
@@ -48,27 +48,25 @@ def _compile(raw: dict) -> Rule:
     match = str(raw.get("match", "any")).lower()
     if match not in ("any", "all"):
         raise ValueError(f'rule match must be "any" or "all": {raw}')
-    content = raw.get("content", False)
-    if not isinstance(content, bool):
-        raise ValueError(f"rule content must be true or false: {raw}")
-    return Rule(raw["category"], rx("app"), rx("title"), rx("url"), match == "all", content)
+    return Rule(raw["category"], rx("app"), rx("title"), rx("url"), match == "all")
 
 
-def parse_rules(text: str) -> list[Rule]:
-    return [_compile(r) for r in tomllib.loads(text).get("rule", [])]
+def parse_rules(text: str, user: bool = False) -> list[Rule]:
+    rules = [_compile(r) for r in tomllib.loads(text).get("rule", [])]
+    return [Rule(r.category, r.app, r.title, r.url, r.match_all, True) for r in rules] if user else rules
 
 
-def _rule_texts(user_path: Path | None) -> list[str]:
-    """rules.toml at the repo root (checked first), then the defaults."""
+def _rule_texts(user_path: Path | None) -> list[tuple[str, bool]]:
+    """(text, is yours): rules.toml at the repo root (checked first), then the defaults."""
     user_path = user_path or ROOT / "rules.toml"
-    texts = [user_path.read_text(encoding="utf-8")] if user_path.exists() else []
-    texts.append(resources.files(__package__).joinpath("default_rules.toml").read_text("utf-8"))
+    texts = [(user_path.read_text(encoding="utf-8"), True)] if user_path.exists() else []
+    texts.append((resources.files(__package__).joinpath("default_rules.toml").read_text("utf-8"), False))
     return texts
 
 
 def load_rules(user_path: Path | None = None) -> list[Rule]:
     """User rules (rules.toml at the repo root) first, then the defaults."""
-    return [rule for text in _rule_texts(user_path) for rule in parse_rules(text)]
+    return [rule for text, user in _rule_texts(user_path) for rule in parse_rules(text, user)]
 
 
 def parse_content(text: str) -> dict[str, list[str]]:
@@ -87,7 +85,7 @@ def parse_content(text: str) -> dict[str, list[str]]:
 def load_content(user_path: Path | None = None) -> dict[str, list[str]]:
     """Screen-text word lists from rules.toml and the defaults, merged per category."""
     merged: dict[str, list[str]] = {}
-    for text in _rule_texts(user_path):
+    for text, _user in _rule_texts(user_path):
         for category, words in parse_content(text).items():
             merged.setdefault(category, []).extend(w for w in words if w not in merged.get(category, []))
     return merged
@@ -108,10 +106,12 @@ def categorize(rules: list[Rule], process: str, title: str, url: str = "") -> st
 def categorize_with_content(
     rules: list[Rule], process: str, title: str, url: str, content_cat: str | None
 ) -> str:
-    """The rule's category, unless the rule allows it (content = true, or no rule
-    matched) and the screen text decided a category for this stretch."""
+    """Your rules (rules.toml) first, then what the screen text decided for this
+    stretch, then the built-in rules, then Other."""
     rule = match_rule(rules, process, title, url)
-    if content_cat and (rule is None or rule.content):
+    if rule is not None and rule.user:
+        return rule.category
+    if content_cat:
         return content_cat
     return rule.category if rule else UNCATEGORIZED
 

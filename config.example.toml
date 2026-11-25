@@ -76,6 +76,7 @@ ai_review = false
 claude_path = ""
 claude_timeout_s = 180
 
-# Read text on saved screenshots (Windows OCR, local) to tell a YouTube lecture
-# from entertainment and spot goal keywords. The text itself is never stored.
+# Read text on saved screenshots (Windows OCR, local) to sort every app and site by
+# what was on screen (a YouTube lecture vs a vlog) and spot goal keywords. Unsure
+# pages are "Other" and listed in Settings. The text itself is never stored.
 ocr = true

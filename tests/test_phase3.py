@@ -253,7 +253,7 @@ def test_tag_writes_user_rule_and_recategorizes(dash, store):
     assert {"Tech/Work", "Learning"} <= cats
     # Subdomain match only on a dot boundary.
     rules = load_rules(dash.rules_path)
-    assert metrics.categorize(rules, "brave.exe", "x", "https://notexample.org/") == "Uncategorized"
+    assert metrics.categorize(rules, "brave.exe", "x", "https://notexample.org/") == "Other"
     for bad in (
         {"kind": "site", "key": "evil.com'\ncategory='x", "category": "Learning"},
         {"kind": "app", "key": "x.exe", "category": "Nope"},

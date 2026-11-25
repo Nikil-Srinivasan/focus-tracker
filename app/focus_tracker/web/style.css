@@ -113,7 +113,7 @@ h2 { font-size: 15px; margin: 0 0 10px; }
 .c-Studytools { background: var(--cat-tools); }
 .c-Communication { background: var(--cat-comm); }
 .c-Entertainment { background: var(--cat-ent); }
-.c-Uncategorized { background: var(--cat-other); }
+.c-Other { background: var(--cat-other); }
 .c-Private { background: var(--cat-private); }
 .c-idle, .c-locked, .c-paused { background: var(--idle); }
 .c-Ongoal { background: var(--cat-tech); }
