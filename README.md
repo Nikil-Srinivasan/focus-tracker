@@ -64,7 +64,7 @@ show as `[excluded]` (privacy errs on the safe side).
 ## Categories
 
 Each stretch gets a category from ordered regex rules in
-`app\focus_tracker\default_rules.toml`: Learning, Job search, Tech/Work
+`app\focus_tracker\default_rules.toml`: Learning, Job search, Tech/Work, Study tools
 (productive), Communication, Entertainment, Uncategorized. Put your own rules in
 `rules.toml` at the repo root (git-ignored); they are checked first:
 
@@ -82,6 +82,12 @@ title = "striver|graph"
 
 With today's goal keywords, productive time splits into **On-goal** and
 **Off-goal**; everything else is a **Distraction**.
+
+**Study tools** (Anytype/Obsidian/Notion, the Claude and ChatGPT apps and sites,
+Google/Bing search results) serve whatever you are learning, so they need no
+keyword: inside an on-goal run (lecture, LeetCode) they count as on-goal and keep
+a deep block going for up to 15 min in a row. On their own they cannot start a
+block and count as off-goal, so random searches or chats don't count.
 
 ## Dashboard
 

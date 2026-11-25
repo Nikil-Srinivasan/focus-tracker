@@ -3,7 +3,7 @@
 // (window titles, sites) is untrusted and goes in via textContent only.
 
 const TOKEN = document.querySelector('meta[name="focus-token"]').content;
-const CATS = ["Tech/Work", "Learning", "Job search", "Communication", "Entertainment", "Uncategorized", "Private"];
+const CATS = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment", "Uncategorized", "Private"];
 const main = document.getElementById("main");
 const dayInput = document.getElementById("day");
 const tip = document.getElementById("tip");

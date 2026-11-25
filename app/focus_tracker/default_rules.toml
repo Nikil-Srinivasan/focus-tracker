@@ -4,8 +4,19 @@
 # (case-insensitive regular expressions); add match = "all" to require every
 # field the rule gives.
 #
-# Productive categories: "Tech/Work", "Learning", "Job search".
+# Productive categories: "Tech/Work", "Learning", "Job search", "Study tools".
 # Everything else counts as a distraction.
+#
+# "Study tools" are helpers that serve whatever you are working on (notes, AI
+# chat, a web search). With a daily goal set they never start a deep block on
+# their own, but up to 15 min in a row of them keeps an on-goal block going
+# (and counts as on-goal). Outside a block they count as off-goal.
+
+[[rule]]
+category = "Study tools"
+app = "^(anytype|obsidian|notion|onenote|claude|chatgpt)\\.exe$"
+url = "^https?://(claude\\.ai|chatgpt\\.com|gemini\\.google\\.com|(www\\.)?perplexity\\.ai)(/|$)|^https?://(www\\.)?(google\\.[a-z.]+|bing\\.com)/search$"
+title = " - Google Search( - Brave)?$"
 
 [[rule]]
 category = "Learning"
@@ -25,7 +36,7 @@ url = "linkedin\\.com/jobs|naukri\\.com|indeed\\.com|glassdoor\\.|instahyre\\.co
 [[rule]]
 category = "Tech/Work"
 app = "^(code|cursor|pycharm64|idea64|devenv|windowsterminal|powershell|pwsh|cmd|wsl|postman|docker desktop|github desktop|sublime_text|notepad\\+\\+)\\.exe$"
-url = "github\\.com|gitlab\\.com|localhost|127\\.0\\.0\\.1|claude\\.ai|chatgpt\\.com|vercel\\.com|supabase\\.com"
+url = "github\\.com|gitlab\\.com|localhost|127\\.0\\.0\\.1|vercel\\.com|supabase\\.com"
 
 [[rule]]
 category = "Communication"
