@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 MAX_BODY = 4096
-CATEGORIES = ["Tech/Work", "Learning", "Job search", "Communication", "Entertainment"]
+CATEGORIES = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment"]
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),

@@ -12,6 +12,7 @@
   --cat-tech: #2a78d6;
   --cat-learning: #eb6834;
   --cat-job: #1baf7a;
+  --cat-tools: #7a5bd6;
   --cat-comm: #eda100;
   --cat-ent: #e87ba4;
   --cat-other: #a3a29c;
@@ -38,6 +39,7 @@
     --cat-tech: #3987e5;
     --cat-learning: #d95926;
     --cat-job: #199e70;
+    --cat-tools: #8f74e0;
     --cat-comm: #c98500;
     --cat-ent: #d55181;
     --cat-other: #77766f;
@@ -54,7 +56,7 @@
   color-scheme: dark;
   --bg: #121211; --surface: #1a1a19; --border: #2e2e2c; --text: #f0efec; --text-2: #c3c2b7;
   --muted: #8f8e88; --accent: #3987e5; --danger: #e66767; --idle: #3a3a37;
-  --cat-tech: #3987e5; --cat-learning: #d95926; --cat-job: #199e70; --cat-comm: #c98500;
+  --cat-tech: #3987e5; --cat-learning: #d95926; --cat-job: #199e70; --cat-tools: #8f74e0; --cat-comm: #c98500;
   --cat-ent: #d55181; --cat-other: #77766f; --cat-private: #9a9993;
   --seq-0: #242423; --seq-1: #104281; --seq-2: #1c5cab; --seq-3: #2a78d6; --seq-4: #5598e7; --seq-5: #9ec5f4;
 }
@@ -108,6 +110,7 @@ h2 { font-size: 15px; margin: 0 0 10px; }
 .c-TechWork { background: var(--cat-tech); }
 .c-Learning { background: var(--cat-learning); }
 .c-Jobsearch { background: var(--cat-job); }
+.c-Studytools { background: var(--cat-tools); }
 .c-Communication { background: var(--cat-comm); }
 .c-Entertainment { background: var(--cat-ent); }
 .c-Uncategorized { background: var(--cat-other); }
