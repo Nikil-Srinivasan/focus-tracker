@@ -171,14 +171,6 @@ async function pageToday() {
     out.push(card("Breaks (back-from-break answers)", h("div", { class: "tags" },
       d.breaks.map((b) => h("span", { text: `${b.label}: ${b.count} (${mins(b.minutes)})` })))));
   }
-  const status = h("span", { class: "status", text: flash });
-  flash = "";
-  const del = (range, label) => h("button", { class: "danger", text: label, onclick: async () => {
-    if (!confirm(`Delete everything recorded ${range === "hour" ? "in the last hour" : "today"} (activity and screenshots)? This cannot be undone.`)) return;
-    try { const r = await post("/api/delete", { range }); flash = `Deleted (${r.screenshots_removed} screenshots).`; render(); }
-    catch (e) { status.textContent = `Could not delete: ${e.message}`; }
-  } });
-  if (d.day === todayIso) out.push(card("Privacy", h("div", { class: "actions" }, del("hour", "Delete last hour"), del("today", "Delete today"), status)));
   return out;
 }
 
@@ -344,6 +336,41 @@ async function pagePlan() {
   return out;
 }
 
+// Privacy: delete the last hour, or every record of a chosen tracker day.
+let privacyFlash = "";  // one-time message for the privacy card
+function privacyCard(today) {
+  const status = h("span", { class: "status", text: privacyFlash });
+  privacyFlash = "";
+  const picker = h("input", { type: "date", value: today, max: today, "aria-label": "Day to delete", onchange: () => { status.textContent = ""; } });
+  const delHour = h("button", { class: "danger", text: "Delete last hour", onclick: async () => {
+    if (!confirm("Delete everything recorded in the last hour (activity and screenshots)? This cannot be undone.")) return;
+    try { const r = await post("/api/delete", { range: "hour" }); privacyFlash = `Deleted the last hour (${r.screenshots_removed} screenshots).`; render(); }
+    catch (e) { status.textContent = `Could not delete: ${e.message}`; }
+  } });
+  const delDay = h("button", { class: "danger", text: "Delete this day", onclick: async () => {
+    const day = picker.value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { status.textContent = "Pick a day first."; return; }
+    if (day > today) { status.textContent = "That day has not happened yet."; return; }
+    try {
+      const res = await fetch(`/api/day_summary?day=${encodeURIComponent(day)}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      const s = await res.json();
+      if (s.empty) { status.textContent = `Nothing is recorded for ${day}.`; return; }
+      const parts = [`${mins(s.activity_min)} of activity`, `${s.screenshots} screenshot${s.screenshots === 1 ? "" : "s"}`];
+      if (s.goal) parts.push("the day's goal");
+      const weeks = s.plans.length ? `\nThe saved weekly plan${s.plans.length === 1 ? "" : "s"} for ${s.plans.join(", ")} will be rebuilt without this day (any AI review is cleared).` : "";
+      const live = day === today ? "\nThe tracker keeps running and records again from now on." : "";
+      if (!confirm(`Delete ALL data for ${day} (${clock(s.bounds[0])} to ${clock(s.bounds[1])} next day): ${parts.join(", ")}, plus idle/lock states and break answers?${weeks}${live}\nThis cannot be undone.`)) return;
+      const r = await post("/api/delete", { range: "day", day });
+      privacyFlash = `Deleted all data for ${day} (${r.screenshots_removed} screenshots).`;
+      render();
+    } catch (e) { status.textContent = `Could not delete: ${e.message}`; }
+  } });
+  return card("Privacy: delete recorded data",
+    h("p", { class: "muted", text: "A day runs from the day-start hour to the same hour the next morning (local time). Deleting removes activity, switches, screenshots, breaks and the goal." }),
+    h("div", { class: "actions" }, delHour, picker, delDay, status));
+}
+
 async function pageSettings() {
   const d = await api("/api/settings");
   const list = (items) => items.length ? h("div", { class: "tags" }, items.map((x) => h("span", { text: x }))) : h("span", { class: "muted", text: "none" });
@@ -362,6 +389,7 @@ async function pageSettings() {
         h("td", { class: "num", text: mins(q.minutes) }), h("td", {}, h("div", { class: "actions" }, sel, save)));
     }))) : empty("Everything you used in the last 7 days has a category.");
   return [
+    privacyCard(d.today),
     card("Tagging queue (uncategorised apps and sites)", h("p", { class: "muted", text: `Saving adds a rule to ${d.rules_file} (git-ignored). Productive: ${d.productive.join(", ")}.` }), queue, status),
     card("Current settings (edit config.toml, then restart the tracker)", h("table", {}, h("tbody", {},
       [["Screenshots", `every ${d.screenshot_interval_s} s while active`], ["Idle after", `${d.idle_threshold_min} min`],

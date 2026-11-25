@@ -14,7 +14,7 @@ import re
 import secrets
 import threading
 import time
-from datetime import date
+from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
@@ -121,6 +121,8 @@ class Dashboard:
             return self.plan(query.get("week"))
         if path == "/api/settings":
             return self.settings()
+        if path == "/api/day_summary":
+            return self.day_summary(day)
         raise ApiError(404, "not found")
 
     def replay(self, day: date) -> dict:
@@ -247,19 +249,74 @@ class Dashboard:
             self._classifier = None
         return {"ok": True}
 
+    def day_summary(self, day: date) -> dict:
+        """What deleting `day` would remove, for the confirmation prompt."""
+        lo, hi = metrics.day_bounds(day, self.cfg.day_rollover_hour)
+        minutes, rows = self.store.query(
+            "SELECT COALESCE(SUM(MIN(end_ts, ?) - MAX(start_ts, ?)), 0) / 60.0, COUNT(*) "
+            "FROM activity WHERE start_ts < ? AND end_ts > ?", (hi, lo, hi, lo))[0]
+        shots = self.store.query(
+            "SELECT COUNT(*) FROM screenshot WHERE deleted = 0 AND ts >= ? AND ts < ?", (lo, hi))[0][0]
+        has_goal = self.store.get_goal(day.isoformat()) is not None
+        states = self.store.query("SELECT COUNT(*) FROM state WHERE start_ts < ? AND end_ts > ?", (hi, lo))[0][0]
+        return {
+            "day": day.isoformat(),
+            "bounds": [lo, hi],
+            "activity_min": round(minutes, 1),
+            "activity_rows": rows,
+            "screenshots": shots,
+            "goal": has_goal,
+            "plans": self.weeks_with(day),
+            "empty": not (rows or shots or has_goal or states),
+        }
+
+    def weeks_with(self, day: date) -> list[str]:
+        """Saved weekly plans whose 7 days include `day`."""
+        last = (day + timedelta(days=6)).isoformat()
+        return [w for w in self.store.plan_days() if day.isoformat() <= w <= last]
+
     def delete(self, body: dict) -> dict:
         if self.agent is None:
             raise ApiError(503, "tracker not running")
         now = self.clock()
         span = body.get("range")
+        if span == "day":
+            return self.delete_day(body.get("day"))
         if span == "hour":
             lo = now - 3600
         elif span == "today":
             lo = metrics.day_bounds(self.today(), self.cfg.day_rollover_hour)[0]
         else:
-            raise ApiError(400, "range must be hour or today")
+            raise ApiError(400, "range must be hour, today or day")
         removed = self.agent.forget(lo, now + 2)  # +2 s covers the tick in flight
         return {"ok": True, "screenshots_removed": removed}
+
+    def delete_day(self, raw) -> dict:
+        """Forget one whole tracker day (rollover hour to rollover hour, local time):
+        activity, states, break answers, screenshots and the goal. Saved weekly plans
+        that include the day are rebuilt without it. The day must be named explicitly."""
+        if not isinstance(raw, str) or not raw:
+            raise ApiError(400, "day must be YYYY-MM-DD")
+        day = self.parse_day(raw)
+        if day > self.today():
+            raise ApiError(400, "that day has not happened yet")
+        weeks = self.weeks_with(day)
+        with self._review_lock:
+            if any(self._reviews.get(w) == "running" for w in weeks):
+                raise ApiError(409, "an AI review for that week is running, try again in a minute")
+        lo, hi = metrics.day_bounds(day, self.cfg.day_rollover_hour)
+        assert self.agent is not None
+        removed = self.agent.forget(lo, hi, day.isoformat())
+        for week in weeks:
+            rebuilt = plan.build_plan(self.store, self.classifier(), date.fromisoformat(week),
+                                      self.cfg.day_rollover_hour, self.clock(),
+                                      self.cfg.refocus_penalty_min, self.cfg.deep_work_goal_h)
+            self.store.save_plan(week, self.clock(), json.dumps(rebuilt))
+            self.store.set_plan_review(week, None)  # the old write-up described the deleted day
+            with self._review_lock:
+                self._reviews.pop(week, None)
+        log.info("Deleted a whole day of data; rebuilt %d weekly plan(s)", len(weeks))
+        return {"ok": True, "day": day.isoformat(), "screenshots_removed": removed, "plans_rebuilt": weeks}
 
 
 class ApiError(Exception):

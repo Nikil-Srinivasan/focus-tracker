@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Callable
 
 from . import capture, plan, retention, review
@@ -170,24 +171,64 @@ class Agent:
             self._last_cap_check = now
             retention.enforce_cap(self.store, self.cfg)
 
-    def forget(self, lo: float, hi: float) -> int:
+    def forget(self, lo: float, hi: float, day: str | None = None) -> int:
         """Delete everything recorded in [lo, hi): log rows and screenshot files.
-        Returns the number of screenshots removed."""
+        With `day` ([lo, hi) is that whole tracker day) also drop its goal, its
+        screenshot rows and any stray files in its hour folders.
+        Returns the number of screenshot files removed."""
         with self._lock:
             # Close the open spans so the next tick cannot stretch a row back over the gap.
             self.activity.close()
             self.state.close()
-            shots = self.store.delete_range(lo, hi)
+            shots = self.store.delete_range(lo, hi, day)
+            removed = 0
             for _id, rel in shots:
-                try:
-                    (self.cfg.shots_dir / rel).unlink(missing_ok=True)
-                except OSError:
-                    log.warning("Could not delete a screenshot file", exc_info=True)
+                removed += self._unlink(self.cfg.shots_dir / rel)
+            if day is not None:
+                removed += self._sweep_hour_folders(lo, hi)
+                if self._goal_failed_day == day:
+                    self._goal_failed_day = None
             self._thumbs.clear()
             if self._away_since is not None and self._away_since >= lo:
                 self._away_since = None
-        log.info("Deleted %d screenshots and the log for a range of %.0f min", len(shots), (hi - lo) / 60)
-        return len(shots)
+        log.info("Deleted %d screenshots and the log for a range of %.0f min", removed, (hi - lo) / 60)
+        return removed
+
+    @staticmethod
+    def _unlink(path: Path) -> int:
+        try:
+            if path.is_file():
+                path.unlink()
+                return 1
+        except OSError:
+            log.warning("Could not delete a screenshot file", exc_info=True)
+        return 0
+
+    def _sweep_hour_folders(self, lo: float, hi: float) -> int:
+        """Remove leftover screenshots (not in the database, e.g. after a crash) from the
+        hour folders inside [lo, hi), then the folders themselves once empty. The day
+        starts on a whole hour, so every hour folder in the range belongs to it."""
+        removed = 0
+        dates: set[Path] = set()
+        ts = lo
+        while ts < hi:
+            folder = self.cfg.shots_dir / capture.shot_relpath(ts, 0).rsplit("/", 1)[0]
+            ts += 3600
+            if not folder.is_dir():
+                continue
+            for f in folder.glob("*.jpg"):
+                removed += self._unlink(f)
+            dates.add(folder.parent)
+            try:
+                folder.rmdir()
+            except OSError:
+                pass  # not empty (some other file) or in use: leave it
+        for folder in dates:
+            try:
+                folder.rmdir()
+            except OSError:
+                pass  # still holds the other tracker day's hours
+        return removed
 
     def _track_break(self, now: float, state: str) -> None:
         """After an idle or locked stretch of at least the idle threshold, ask once what it was."""

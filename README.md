@@ -107,8 +107,13 @@ Definitions: a **deep block** is 25+ min of on-goal work where no distraction
 lasts over 60 s and you are not away over 60 s. Switches ignore flickers under
 2 s. Excluded windows count as "Private", neither on-goal nor a distraction.
 
-**Delete last hour / Delete today** (Today page) removes the activity log and
-the screenshots for that range from disk.
+**Privacy** (Settings page): **Delete last hour**, or pick any past day (or
+today) and **Delete this day** to remove everything for that tracker day (day-start
+hour to the same hour next morning, local time): activity and switches, idle/lock
+states, break answers, the goal, and its screenshots from disk. A confirmation
+shows what will go first. Saved weekly plans that include the day are rebuilt
+without it (any AI review for that week is cleared). Deleting today keeps the
+tracker running; it records again from that moment and asks for a new goal.
 
 **Back from a break** (5+ min idle or locked) a small window asks once:
 Thinking, Break, Call or Distracted. Ignore it and it closes after 2 minutes.

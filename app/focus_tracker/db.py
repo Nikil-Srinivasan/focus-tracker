@@ -195,7 +195,7 @@ class Store:
     def plan_days(self) -> list[str]:
         return [r[0] for r in self.query("SELECT end_day FROM plan ORDER BY end_day DESC")]
 
-    def set_plan_review(self, end_day: str, review: str) -> None:
+    def set_plan_review(self, end_day: str, review: str | None) -> None:
         self._exec("UPDATE plan SET review = ? WHERE end_day = ?", (review, end_day))
 
     # break labels
@@ -204,11 +204,12 @@ class Store:
             "INSERT INTO break_label(start_ts, end_ts, label) VALUES(?, ?, ?)", (start_ts, end_ts, label)
         )
 
-    # forget a time range (dashboard "delete this hour / today")
-    def delete_range(self, lo: float, hi: float) -> list[tuple[int, str]]:
+    # forget a time range (dashboard "delete this hour / today / this day")
+    def delete_range(self, lo: float, hi: float, day: str | None = None) -> list[tuple[int, str]]:
         """Remove [lo, hi) from activity, state and break rows (rows that straddle an
         edge are trimmed) and return the live screenshots in it as (id, path) so the
-        caller can delete the files."""
+        caller can delete the files. With `day` (a whole tracker day), the screenshot
+        rows in the range and that day's goal are removed too, not just marked."""
         with self._lock:
             shots = self._conn.execute(
                 "SELECT id, path FROM screenshot WHERE deleted = 0 AND ts >= ? AND ts < ?", (lo, hi)
@@ -232,9 +233,13 @@ class Store:
                         f"UPDATE {table} SET start_ts = ? WHERE start_ts >= ? AND start_ts < ? AND end_ts >= ?",
                         (hi, lo, hi, hi),
                     )
-                self._conn.execute(
-                    "UPDATE screenshot SET deleted = 1 WHERE deleted = 0 AND ts >= ? AND ts < ?", (lo, hi)
-                )
+                if day is None:
+                    self._conn.execute(
+                        "UPDATE screenshot SET deleted = 1 WHERE deleted = 0 AND ts >= ? AND ts < ?", (lo, hi)
+                    )
+                else:
+                    self._conn.execute("DELETE FROM screenshot WHERE ts >= ? AND ts < ?", (lo, hi))
+                    self._conn.execute("DELETE FROM goal WHERE day = ?", (day,))
                 self._conn.execute("COMMIT")
             except Exception:
                 self._conn.execute("ROLLBACK")
