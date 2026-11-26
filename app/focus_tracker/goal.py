@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import threading
 
-BREAK_LABELS = ("Thinking", "Break", "Call", "Distracted")
+BREAK_LABELS = ("Thinking", "Break", "Nap", "Call", "Distracted")
+# A nap is offered only after a stretch long enough to be one; shorter breaks
+# get the other four buttons.
+NAP_MIN_AWAY_S = 10 * 60
+# How the answers count on the dashboard: rest is recovery, never a distraction.
+REST_LABELS = ("Break", "Nap")
 BREAK_PROMPT_TIMEOUT_MS = 120_000
 _UI_LOCK = threading.Lock()  # one Tk window at a time (Tk is not happy with two threads)
 
@@ -53,6 +58,13 @@ def _prompt_goal(day: str) -> tuple[str, str] | None:
     return result["value"]
 
 
+def break_labels(away_s: float) -> tuple[str, ...]:
+    """The buttons for a break of `away_s` seconds."""
+    if away_s >= NAP_MIN_AWAY_S:
+        return BREAK_LABELS
+    return tuple(label for label in BREAK_LABELS if label != "Nap")
+
+
 def prompt_break(away_s: float) -> str | None:
     """Blocking, one click. Returns one of BREAK_LABELS, or None if dismissed, timed
     out after 2 minutes, or another prompt is already open."""
@@ -82,7 +94,7 @@ def _prompt_break(away_s: float) -> str | None:
         result["value"] = label
         root.destroy()
 
-    for label in BREAK_LABELS:
+    for label in break_labels(away_s):
         tk.Button(row, text=label, width=11, command=lambda lb=label: pick(lb)).pack(side="left", padx=3)
     root.after(BREAK_PROMPT_TIMEOUT_MS, root.destroy)
     root.mainloop()

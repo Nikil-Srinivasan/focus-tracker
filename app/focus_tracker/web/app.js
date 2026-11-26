@@ -3,7 +3,7 @@
 // (window titles, sites) is untrusted and goes in via textContent only.
 
 const TOKEN = document.querySelector('meta[name="focus-token"]').content;
-const CATS = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment", "Other", "Private"];
+const CATS = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment", "System", "Other", "Private"];
 const main = document.getElementById("main");
 const dayInput = document.getElementById("day");
 const tip = document.getElementById("tip");
@@ -153,6 +153,7 @@ async function pageToday() {
     kpi("Switches / hour", String(k.switches_per_hour), `${k.app_switches} app, ${k.tab_switches} tab`),
     kpi("Distraction", mins(k.distraction_min), "off-goal + distraction"),
     kpi("Goal fit", `${k.goal_fit_pct}%`, "of active time on-goal"),
+    edgeKpi(d.edges.rows.find((r) => r.day === d.day)),
     kpi(d.day === todayIso ? "Current run" : "First deep block",
       d.day === todayIso ? mins(k.current_run_min) : (k.time_to_first_block_min == null ? "–" : `after ${mins(k.time_to_first_block_min)}`),
       d.day === todayIso ? (k.time_to_first_block_min == null ? "no deep block yet" : `first block after ${mins(k.time_to_first_block_min)}`) : null)));
@@ -169,9 +170,54 @@ async function pageToday() {
   out.push(card("Deep work sessions", sessionCards(d.cards)));
   if (d.breaks.length) {
     out.push(card("Breaks (back-from-break answers)", h("div", { class: "tags" },
-      d.breaks.map((b) => h("span", { text: `${b.label}: ${b.count} (${mins(b.minutes)})` })))));
+      d.breaks.map((b) => h("span", { class: b.rest ? "rest" : null, text: `${b.label}: ${b.count} (${mins(b.minutes)})` }))),
+      h("p", { class: "muted", text: `Rest (breaks and naps): ${mins(d.rest_min)}. Time away from the PC never counts as distraction; "Distracted" answers show how often a break was not one.` })));
   }
+  out.push(edgesCard(d.edges, d.day));
   return out;
+}
+
+// First and last moment at the PC per tracker day ---------------------------------
+function edgeText(r) {
+  if (!r || r.first == null) return "–";
+  return `${clock(r.first)} to ${r.still_on ? "now" : clock(r.last)}`;
+}
+function edgeKpi(r) {
+  const short = r && r.first != null ? `${clock(r.first)}–${r.still_on ? "now" : clock(r.last)}` : "–";
+  return kpi("At the PC", short, r && r.first != null ? `first in to ${r.still_on ? "now" : "last out"}, ${mins(r.span_min)}` : "nothing recorded");
+}
+function edgesCard(e, selected) {
+  const rows = e.rows.filter((r) => r.first != null);
+  if (!rows.length) return card("Start and stop times", empty("Nothing recorded in the last 14 days."));
+  const typical = [];
+  if (e.start) typical.push(kpi("Usual first in", e.start.median, `earliest ${e.start.earliest}, latest ${e.start.latest} (${e.start.days} days)`));
+  if (e.stop) typical.push(kpi("Usual last out", e.stop.median, `earliest ${e.stop.earliest}, latest ${e.stop.latest} (${e.stop.days} days)`));
+  const dayLen = 24 * 3600;
+  const axisHours = [];
+  for (let i = 0; i <= 24; i += 4) axisHours.push(i);
+  const startOf = (iso) => { const t = new Date(iso + "T00:00:00"); t.setHours(e.rollover_hour); return t.getTime() / 1000; };
+  const lines = h("div", { class: "edges" }, e.rows.map((r) => {
+    const lo = startOf(r.day);
+    const bar = h("div", { class: "edge-track" });
+    if (r.first != null) {
+      bar.append(h("span", {
+        class: r.still_on ? "live" : null,
+        style: { left: `${((r.first - lo) / dayLen) * 100}%`, width: `${Math.max(((r.last - r.first) / dayLen) * 100, 0.4)}%` },
+        tip: `${r.day}\n${edgeText(r)} (${mins(r.span_min)} span, ${mins(r.active_min)} active)`,
+      }));
+    }
+    return [
+      h("span", { class: "d" + (r.day === selected ? " on" : ""), text: r.day.slice(5) }),
+      bar,
+      h("span", { class: "x", text: r.first != null ? `${edgeText(r)} · ${mins(r.active_min)} active` : "not used" }),
+    ];
+  }));
+  const axis = h("div", { class: "edge-axis" }, axisHours.map((i) => h("span", {
+    style: { left: `${(i / 24) * 100}%` }, text: `${pad((e.rollover_hour + i) % 24)}:00`,
+  })));
+  return card("Start and stop times (last 14 days)", typical.length ? h("div", { class: "grid" }, typical) : null, lines,
+    h("div", { class: "edges" }, h("span", {}), axis, h("span", {})),
+    h("p", { class: "muted", text: "First in = first window used after the day starts (unlock or wake); last out = last window used before locking, sleeping or leaving. The day runs from the day-start hour to the same hour next morning. Today's stop is left out of the usual last out until the day ends." }));
 }
 
 async function pageFocus() {
@@ -396,7 +442,7 @@ async function pageSettings() {
     }))) : empty("Everything in the last 7 days was sorted by its screen text or a rule.");
   return [
     privacyCard(d.today),
-    card("Not sure (Other): check these", h("p", { class: "muted", text: `Most time is sorted from the screen text. These pages could not be: pick a category for that page, or tick the box for the whole site or app. Saved to ${d.rules_file} (git-ignored); your choice beats the screen text. Productive: ${d.productive.join(", ")}.` }), queue, status),
+    card("Not sure (Other): check these", h("p", { class: "muted", text: `Most time is sorted from the screen text. These pages could not be: pick a category for that page, or tick the box for the whole site or app. Saved to ${d.rules_file} (git-ignored); your choice beats the screen text. Productive: ${d.productive.join(", ")}. Neutral (neither work nor distraction): ${d.neutral.join(", ")}.` }), queue, status),
     card("Current settings (edit config.toml, then restart the tracker)", h("table", {}, h("tbody", {},
       [["Screenshots", `every ${d.screenshot_interval_s} s while active`], ["Idle after", `${d.idle_threshold_min} min`],
        ["Weekly wipe", d.wipe], ["Storage", `${d.storage_gb} GB of ${d.max_storage_gb} GB cap`], ["Day starts", d.day_starts],

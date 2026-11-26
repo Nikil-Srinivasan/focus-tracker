@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
 
 from . import metrics, plan, review
-from .categorize import PRODUCTIVE, load_rules
+from .categorize import NEUTRAL, PRODUCTIVE, load_rules
 from .config import ROOT, Config
 from .db import Store
 
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 MAX_BODY = 4096
-CATEGORIES = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment"]
+CATEGORIES = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment", "System"]
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -108,6 +108,7 @@ class Dashboard:
         if path == "/api/today":
             data = self.report(day).today()
             data["paused_until"] = self.agent.paused_until if self.agent else 0
+            data["edges"] = metrics.day_edges(self.store, day, self.cfg.day_rollover_hour, self.clock())
             return data
         if path == "/api/focus":
             data = self.report(day).focus()
@@ -206,6 +207,7 @@ class Dashboard:
             "rules_file": self.rules_path.name,
             "categories": CATEGORIES,
             "productive": sorted(PRODUCTIVE),
+            "neutral": sorted(NEUTRAL),
             "queue": metrics.uncategorized(self.store, self.classifier(), now - 7 * 86400, now),
         }
 

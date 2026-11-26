@@ -21,7 +21,7 @@ from .capture import Capturer
 from .categorize import load_rules
 from .config import Config
 from .db import Store
-from .metrics import Classifier
+from .metrics import LOCK_SCREEN_PROCESSES, Classifier
 from .system import Foreground, System
 from .titles import clean_title
 
@@ -151,6 +151,8 @@ class Agent:
         no_shot = True  # fail closed: no foreground window means no screenshot
         if state in PRESENT:
             for ts, win in switches:
+                if win.process.lower() in LOCK_SCREEN_PROCESSES:
+                    continue  # the lock screen is not activity; the next tick sees LOCKED
                 # Exact switch times between ticks; never move a span backwards.
                 self._record(min(max(ts, self.activity.last or ts), now), win)
             fg = self.system.foreground()
@@ -324,13 +326,20 @@ class Agent:
     def _decide_state(self, now: float) -> str:
         if now < self._paused_until:
             return PAUSED
-        if self.system.is_locked():
+        if self.system.is_locked() or self._lock_screen_in_front():
             return LOCKED
         if self.system.idle_seconds() >= self.cfg.idle_threshold_s:
             if self.cfg.detect_media and (self.browser.audible(now) or self.system.media_playing()):
                 return WATCHING
             return IDLE
         return ACTIVE
+
+    def _lock_screen_in_front(self) -> bool:
+        try:
+            fg = self.system.foreground()
+        except Exception:
+            return False
+        return fg is not None and fg.process.lower() in LOCK_SCREEN_PROCESSES
 
     def _blocked_monitors(self, capturer: Capturer, now: float) -> set[int] | None:
         """Monitors showing any visible excluded / no-screenshot / private window, not
