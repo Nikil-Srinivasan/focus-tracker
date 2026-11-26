@@ -419,10 +419,13 @@ def week_end_for(boundary_ts: float, rollover_hour: int) -> date:
 
 def maybe_generate(store: Store, classifier_factory, cfg, now: float) -> dict | None:
     """Store the plan for the week that ended at the latest weekly boundary, once."""
-    from .retention import last_wipe_boundary
+    from .retention import SCHEDULE_CHANGED_KEY, last_wipe_boundary
 
     hh, mm = cfg.wipe_hour_minute
     boundary = last_wipe_boundary(datetime.fromtimestamp(now), cfg.wipe_weekday, hh, mm)
+    changed = store.get_meta(SCHEDULE_CHANGED_KEY)
+    if changed is not None and boundary.timestamp() <= float(changed):
+        return None  # the schedule moved after this boundary: start with the next one
     end_day = week_end_for(boundary.timestamp() - 1, cfg.day_rollover_hour)
     if store.query("SELECT 1 FROM plan WHERE end_day = ?", (end_day.isoformat(),)):
         return None

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import os
+import re
 import tomllib
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -187,3 +190,130 @@ def load_config(path: Path | None = None) -> Config:
     cfg.no_screenshot_domains = [d.lower() for d in cfg.no_screenshot_domains]
     cfg.validate()
     return cfg
+
+
+# ---- Editing from the dashboard ------------------------------------------------
+# Settings the dashboard may change. Every one is read live by the agent, so a
+# saved change applies on the next tick (the pause hotkey is re-registered).
+EDITABLE_NUMBERS = {  # key: (min, max)
+    "screenshot_interval_s": (1, 600),
+    "idle_threshold_s": (60, 7200),
+    "max_storage_gb": (1, 2000),
+    "deep_work_goal_h": (0.5, 16),
+}
+EDITABLE_INTS = {"wipe_weekday": (0, 6), "day_rollover_hour": (0, 23)}
+EDITABLE_BOOLS = ("ask_daily_goal", "ask_after_break", "ai_review")
+EDITABLE_LISTS = (
+    "exclude_processes",
+    "exclude_title_keywords",
+    "exclude_domains",
+    "no_screenshot_title_keywords",
+    "no_screenshot_domains",
+)
+EDITABLE = (*EDITABLE_NUMBERS, *EDITABLE_INTS, *EDITABLE_BOOLS, *EDITABLE_LISTS, "wipe_time", "pause_hotkey")
+# Built-in protections: the dashboard can add to these lists but never remove a
+# built-in entry (fail closed; config.toml stays the expert escape hatch).
+BUILT_IN = {
+    "exclude_processes": DEFAULT_EXCLUDE_PROCESSES,
+    "exclude_title_keywords": DEFAULT_EXCLUDE_TITLE_KEYWORDS,
+    "exclude_domains": DEFAULT_EXCLUDE_DOMAINS,
+    "no_screenshot_title_keywords": DEFAULT_NO_SCREENSHOT_TITLE_KEYWORDS,
+    "no_screenshot_domains": DEFAULT_NO_SCREENSHOT_DOMAINS,
+}
+MAX_LIST_ITEMS = 200
+_DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+_PROCESS_RE = re.compile(r"^[\w][\w .+()-]*\.exe$")
+_HHMM_RE = re.compile(r"^\d{2}:\d{2}$")
+
+
+def _clean_list(key: str, value: object) -> list[str]:
+    if not isinstance(value, list) or len(value) > MAX_LIST_ITEMS:
+        raise ValueError(f"{key} must be a list of at most {MAX_LIST_ITEMS} entries")
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"{key}: every entry must be text")
+        item = item.strip().lower()
+        if not item:
+            continue
+        if len(item) > 100 or any(ord(c) < 0x20 or ord(c) == 0x7F for c in item):
+            raise ValueError(f"{key}: entries must be 1 to 100 plain characters")
+        if key.endswith("_domains"):
+            item = item.removeprefix("www.") if item.count(".") > 1 else item
+            if not _DOMAIN_RE.match(item):
+                raise ValueError(f"{key}: {item!r} is not a site like example.com")
+        elif key == "exclude_processes" and not _PROCESS_RE.match(item):
+            raise ValueError(f"{key}: {item!r} is not an app like name.exe")
+        elif key.endswith("_keywords") and len(item) < 3:
+            raise ValueError(f"{key}: keywords need at least 3 characters")
+        if item not in out:
+            out.append(item)
+    return out
+
+
+def edit_config(cfg: Config, edits: dict) -> dict:
+    """Validate dashboard edits against `cfg`. Returns {key: new value} for the keys
+    that change; raises ValueError (message safe to show) if anything is invalid.
+    `cfg` itself is not touched."""
+    unknown = sorted(set(edits) - set(EDITABLE))
+    if unknown:
+        raise ValueError(f"these settings cannot be changed here: {unknown}")
+    changes: dict = {}
+    for key, value in edits.items():
+        if key in EDITABLE_NUMBERS:
+            lo, hi = EDITABLE_NUMBERS[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not lo <= value <= hi:
+                raise ValueError(f"{key} must be a number from {lo} to {hi}")
+            value = int(value) if float(value).is_integer() else round(float(value), 2)
+        elif key in EDITABLE_INTS:
+            lo, hi = EDITABLE_INTS[key]
+            if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+                raise ValueError(f"{key} must be a whole number from {lo} to {hi}")
+        elif key in EDITABLE_BOOLS:
+            if not isinstance(value, bool):
+                raise ValueError(f"{key} must be true or false")
+        elif key in EDITABLE_LISTS:
+            value = _clean_list(key, value)
+            current = getattr(cfg, key)
+            kept = [x for x in BUILT_IN[key] if x in current and x not in value]
+            if kept:
+                raise ValueError(f"built-in protections cannot be removed here: {', '.join(kept)}")
+        elif key == "wipe_time":
+            if not isinstance(value, str) or not _HHMM_RE.match(value):
+                raise ValueError("wipe_time must be HH:MM")
+        elif key == "pause_hotkey":
+            if not isinstance(value, str) or len(value) > 40:
+                raise ValueError("pause_hotkey must be text like ctrl+alt+p")
+            value = value.strip().lower().replace(" ", "")
+        if value != getattr(cfg, key):
+            changes[key] = value
+    replace(cfg, **changes).validate()  # whole-config checks (hotkey, HH:MM range, ...)
+    return changes
+
+
+def _toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value)  # JSON strings are valid TOML basic strings
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
+    raise TypeError(f"cannot write {type(value).__name__} to TOML")
+
+
+def save_config(path: Path, changes: dict) -> None:
+    """Merge `changes` into config.toml, keeping every other key it already has.
+    Written to a temp file and swapped in, so a crash never leaves half a file."""
+    raw = tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    raw.update(changes)
+    lines = [
+        "# Focus tracker settings (git-ignored). Saved from the dashboard's Settings page;",
+        "# comments are not kept. Every key is optional: see config.example.toml.",
+        "",
+    ]
+    lines += [f"{key} = {_toml_value(value)}" for key, value in raw.items()]
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, path)

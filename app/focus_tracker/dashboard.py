@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import metrics, plan, review
 from .categorize import NEUTRAL, PRODUCTIVE, load_rules
-from .config import ROOT, Config
+from .config import BUILT_IN, EDITABLE_LISTS, ROOT, Config, edit_config, save_config
 from .db import Store
 from .timefmt import hhmm12, hour12
 
@@ -32,11 +32,12 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-MAX_BODY = 4096
+MAX_BODY = 16384  # settings saves carry the privacy lists
 CATEGORIES = ["Tech/Work", "Learning", "Job search", "Study tools", "Communication", "Entertainment", "System"]
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/theme.js": ("theme.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 HEADERS = {
@@ -63,9 +64,14 @@ class Dashboard:
         agent: Agent | None = None,
         rules_path: Path | None = None,
         clock=time.time,
+        config_path: Path | None = None,
+        apply_hotkey=None,  # callable(text): re-register the pause hotkey live
     ):
         self.cfg, self.store, self.agent = cfg, store, agent
         self.rules_path = rules_path or ROOT / "rules.toml"
+        self.config_path = config_path or ROOT / "config.toml"
+        self.apply_hotkey = apply_hotkey
+        self._config_lock = threading.Lock()
         self.clock = clock
         self.token = secrets.token_urlsafe(32)
         self._rules_lock = threading.Lock()
@@ -205,6 +211,22 @@ class Dashboard:
             "no_screenshot_title_keywords": cfg.no_screenshot_title_keywords,
             "no_screenshot_domains": cfg.no_screenshot_domains,
             "pause_hotkey": cfg.pause_hotkey,
+            "values": {
+                "screenshot_interval_s": cfg.screenshot_interval_s,
+                "idle_threshold_s": cfg.idle_threshold_s,
+                "wipe_weekday": cfg.wipe_weekday,
+                "wipe_time": cfg.wipe_time,
+                "max_storage_gb": cfg.max_storage_gb,
+                "day_rollover_hour": cfg.day_rollover_hour,
+                "pause_hotkey": cfg.pause_hotkey,
+                "deep_work_goal_h": cfg.deep_work_goal_h,
+                "ask_daily_goal": cfg.ask_daily_goal,
+                "ask_after_break": cfg.ask_after_break,
+                "ai_review": cfg.ai_review,
+                **{key: list(getattr(cfg, key)) for key in EDITABLE_LISTS},
+            },
+            "built_in": {key: [x for x in BUILT_IN[key] if x in getattr(cfg, key)] for key in EDITABLE_LISTS},
+            "config_file": self.config_path.name,
             "rules_file": self.rules_path.name,
             "categories": CATEGORIES,
             "productive": sorted(PRODUCTIVE),
@@ -230,7 +252,37 @@ class Dashboard:
             return self.delete(body)
         if path == "/api/plan/review":
             return self.start_review(body)
+        if path == "/api/settings":
+            return self.save_settings(body)
         raise ApiError(404, "not found")
+
+    def save_settings(self, body: dict) -> dict:
+        """Validate, write to config.toml, then apply to the running tracker.
+        Nothing changes (file or live) if any value is invalid."""
+        with self._config_lock:
+            try:
+                changes = edit_config(self.cfg, body)
+            except (ValueError, TypeError) as exc:
+                raise ApiError(400, str(exc)) from None
+            if not changes:
+                return {"ok": True, "changed": []}
+            try:
+                save_config(self.config_path, changes)
+            except Exception:
+                log.exception("Could not save %s", self.config_path.name)
+                raise ApiError(500, f"could not save {self.config_path.name}") from None
+            if self.agent is not None:
+                self.agent.update_config(changes, self.clock())
+            else:
+                for key, value in changes.items():
+                    setattr(self.cfg, key, value)
+            if "pause_hotkey" in changes and self.apply_hotkey is not None:
+                try:
+                    self.apply_hotkey(changes["pause_hotkey"])
+                except Exception:
+                    log.exception("Could not re-register the pause hotkey")
+        log.info("Settings saved from the dashboard: %s", ", ".join(sorted(changes)))
+        return {"ok": True, "changed": sorted(changes)}
 
     def tag(self, body: dict) -> dict:
         """Save your category for a page or video (scope "page": that site or app with

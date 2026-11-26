@@ -175,6 +175,17 @@ class Agent:
             self._last_cap_check = now
             retention.enforce_cap(self.store, self.cfg)
 
+    def update_config(self, changes: dict, now: float) -> None:
+        """Apply saved dashboard settings between ticks. A new wipe schedule starts
+        from now, so moving the wipe day never wipes screenshots or makes a weekly
+        plan on the spot."""
+        with self._lock:
+            if {"wipe_weekday", "wipe_time"} & set(changes):
+                self.store.set_meta(retention.LAST_WIPE_KEY, str(now))
+                self.store.set_meta(retention.SCHEDULE_CHANGED_KEY, str(now))
+            for key, value in changes.items():
+                setattr(self.cfg, key, value)
+
     def forget(self, lo: float, hi: float, day: str | None = None) -> int:
         """Delete everything recorded in [lo, hi): log rows and screenshot files.
         With `day` ([lo, hi) is that whole tracker day) also drop its goal, its
