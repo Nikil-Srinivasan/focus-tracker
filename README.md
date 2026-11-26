@@ -153,17 +153,21 @@ internet.
 | Focus | Focus-session lengths, context switches per hour, recovery time, a 4-week hour-of-day heatmap of deep work |
 | Distractions | Top distractions and off-goal sites, triggers (what you were on right before), communication pull, rabbit holes |
 | Replay | Both screens side by side for any moment of the day, with the window that was in front |
-| Settings | Pages the screen text could not sort (Other): pick a category for that page or the whole site/app (saves to `rules.toml`), current settings and exclusions |
+| Settings | Edit tracking settings and privacy lists (saved to `config.toml`, applied at once), colour theme, pages the screen text could not sort (Other: pick a category, saved to `rules.toml`), and deleting recorded data |
 
 Definitions: a **deep block** is 25+ min of on-goal work where no distraction
 lasts over 60 s and you are not away over 60 s. Switches ignore flickers under
 2 s. Excluded windows count as "Private", neither on-goal nor a distraction.
 
-**Privacy** (Settings page): **Delete last hour**, or pick any past day (or
-today) and **Delete this day** to remove everything for that tracker day (day-start
+Pages are in the left sidebar. Confirmations use an in-app dialog, and every
+save or delete shows a short confirmation in the bottom-right corner.
+
+**Delete recorded data** (bottom of Settings, in two separate boxes): **Delete the
+last hour**, or pick any past day (or today) in the box's own date picker and
+**Delete** it to remove everything for that tracker day (day-start
 hour to the same hour next morning, local time): activity and switches, idle/lock
 states, break answers, the goal, and its screenshots from disk. A confirmation
-shows what will go first. Saved weekly plans that include the day are rebuilt
+shows what will go first, and the picker previews it. Saved weekly plans that include the day are rebuilt
 without it (any AI review for that week is cleared). Deleting today keeps the
 tracker running; it records again from that moment and asks for a new goal.
 
@@ -264,6 +268,18 @@ data\
 
 Copy `config.example.toml` to `config.toml` (setup does this) and edit. Unknown
 keys are rejected so typos do not silently do nothing.
+
+Most everyday settings can also be changed on the **Settings** page: screenshot
+interval, idle time, day start, deep-work goal, pause hotkey, the daily-goal and
+break prompts, AI review, weekly wipe day and time, storage cap, and the
+never-recorded / no-screenshot lists. Values are validated, written to
+`config.toml` (other keys are kept, comments are not) and applied without a
+restart. Moving the wipe day starts the new schedule from its next occurrence.
+Built-in protections (private windows, bank and payment pages, the course site)
+can be added to from the page but not removed; edit `config.toml` for that.
+
+The colour theme (Match Windows, Light, Slate, Indigo, Deep teal, Graphite) is
+picked on the Settings page and remembered by the browser.
 
 ## Development
 

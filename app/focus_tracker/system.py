@@ -15,6 +15,8 @@ from typing import Callable, NamedTuple, Protocol
 
 log = logging.getLogger(__name__)
 
+WM_SET_HOTKEY = 0x8000 + 1  # WM_APP + 1: "re-register the pause hotkey"
+
 Rect = tuple[int, int, int, int]  # left, top, right, bottom in physical pixels
 
 
@@ -135,8 +137,19 @@ class WindowsSystem:
             target=self._hook_loop, args=(hotkey, on_hotkey), daemon=True, name="winevent"
         ).start()
 
+    def set_hotkey(self, hotkey: tuple[int, int] | None) -> None:
+        """Swap the pause hotkey (None turns it off) from any thread: the hook
+        thread owns the registration, so ask it with a thread message."""
+        self._next_hotkey = hotkey
+        tid = getattr(self, "_hook_tid", 0)
+        if tid:
+            wt = self._wt
+            self._user32.PostThreadMessageW.argtypes = [wt.DWORD, wt.UINT, wt.WPARAM, wt.LPARAM]
+            self._user32.PostThreadMessageW(tid, WM_SET_HOTKEY, 0, 0)
+
     def _hook_loop(self, hotkey: tuple[int, int] | None, on_hotkey: Callable[[], None] | None) -> None:
         ct, wt, user32 = self._ct, self._wt, self._user32
+        self._hook_tid = self._kernel32.GetCurrentThreadId()
         EVENT_SYSTEM_FOREGROUND, EVENT_OBJECT_NAMECHANGE = 0x0003, 0x800C
         WINEVENT_SKIPOWNPROCESS = 0x0002
         proc_type = ct.WINFUNCTYPE(
@@ -162,19 +175,28 @@ class WindowsSystem:
         if not all(hooks):
             log.warning("SetWinEventHook failed; falling back to 1 s polling only")
         WM_HOTKEY, MOD_NOREPEAT, HOTKEY_ID = 0x0312, 0x4000, 1
-        hotkey_ok = False
-        if hotkey and on_hotkey:
-            user32.RegisterHotKey.restype = wt.BOOL
-            user32.RegisterHotKey.argtypes = [wt.HWND, ct.c_int, wt.UINT, wt.UINT]
-            hotkey_ok = bool(user32.RegisterHotKey(None, HOTKEY_ID, hotkey[0] | MOD_NOREPEAT, hotkey[1]))
-            if not hotkey_ok:
+        user32.RegisterHotKey.restype = wt.BOOL
+        user32.RegisterHotKey.argtypes = [wt.HWND, ct.c_int, wt.UINT, wt.UINT]
+        user32.UnregisterHotKey.argtypes = [wt.HWND, ct.c_int]
+
+        def register(key: tuple[int, int] | None) -> bool:
+            user32.UnregisterHotKey(None, HOTKEY_ID)
+            if not (key and on_hotkey):
+                return False
+            ok = bool(user32.RegisterHotKey(None, HOTKEY_ID, key[0] | MOD_NOREPEAT, key[1]))
+            if not ok:
                 log.warning("Pause hotkey is taken by another app; use the tray menu instead")
-        if not (any(hooks) or hotkey_ok):
-            return
+            return ok
+
+        register(hotkey)
+        # Keep the loop alive even without hooks, so a hotkey set later still works.
         user32.GetMessageW.restype = wt.BOOL
         user32.GetMessageW.argtypes = [ct.POINTER(wt.MSG), wt.HWND, wt.UINT, wt.UINT]
         msg = wt.MSG()
         while user32.GetMessageW(ct.byref(msg), None, 0, 0) > 0:
+            if msg.message == WM_SET_HOTKEY:
+                register(self._next_hotkey)
+                continue
             if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID and on_hotkey:
                 try:
                     on_hotkey()

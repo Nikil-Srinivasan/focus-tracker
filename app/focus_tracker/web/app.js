@@ -10,7 +10,6 @@ const tip = document.getElementById("tip");
 let todayIso = null;
 let refreshTimer = null;
 let replayTimer = null;
-let flash = "";  // one-time message shown after the next render
 
 // helpers --------------------------------------------------------------------
 function h(tag, props, ...kids) {
@@ -71,6 +70,57 @@ const kpi = (label, value, sub) =>
 function legend(items) {
   return h("div", { class: "legend" }, items.map((c) => h("span", {}, h("i", { class: slug(c) }), c)));
 }
+
+// icons (stroke paths, 24x24) used by the dialog and toasts
+const SVGNS = "http://www.w3.org/2000/svg";
+const ICONS = {
+  ok: "M20 6 9 17l-5-5",
+  warn: "M12 3 2 20h20zM12 10v4M12 17h.01",
+  info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01",
+  lock: "M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4",
+};
+function icon(name) {
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(SVGNS, "path");
+  path.setAttribute("d", ICONS[name]);
+  svg.append(path);
+  return svg;
+}
+
+// In-app confirmation dialog (instead of the browser's built-in pop-ups). Resolves true or false.
+// `body` is a list of lines (strings) and nodes; text always goes in via textContent.
+const dialog = document.getElementById("dialog");
+function ask({ title, body = [], ok = "Confirm", danger = false }) {
+  return new Promise((resolve) => {
+    let answered = false;
+    const done = (value) => { if (answered) return; answered = true; dialog.close(); resolve(value); };
+    const cancel = h("button", { type: "button", text: "Cancel", onclick: () => done(false) });
+    const yes = h("button", { type: "button", class: danger ? "primary danger" : "primary", text: ok, onclick: () => done(true) });
+    dialog.className = danger ? "danger" : "";
+    dialog.replaceChildren(
+      h("div", { class: "dlg-body" }, h("h3", { id: "dialog-title" }, icon(danger ? "warn" : "info"), title),
+        body.map((b) => (b instanceof Node ? b : h("p", { text: b })))),
+      h("div", { class: "dlg-foot" }, cancel, yes));
+    dialog.oncancel = (e) => { e.preventDefault(); done(false); };  // Esc
+    dialog.onclick = (e) => { if (e.target === dialog) done(false); };  // click on the backdrop
+    dialog.showModal();
+    (danger ? cancel : yes).focus();  // a stray Enter never deletes anything
+  });
+}
+
+// Small confirmation that something happened, bottom right, gone after a few seconds.
+const toasts = document.getElementById("toasts");
+function toast(text, kind = "ok") {
+  const el = h("div", { class: `toast ${kind}` }, icon(kind === "error" ? "warn" : "ok"), h("span", { text }),
+    h("button", { class: "x", "aria-label": "Dismiss", text: "\u00d7", onclick: () => el.remove() }));
+  toasts.append(el);
+  while (toasts.children.length > 3) toasts.firstChild.remove();
+  setTimeout(() => el.remove(), kind === "error" ? 9000 : 6000);
+}
+const longDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // tooltips: any element with data-tip
 document.addEventListener("mousemove", (e) => {
@@ -387,89 +437,290 @@ async function pagePlan() {
   return out;
 }
 
-// Privacy: delete the last hour, or every record of a chosen tracker day.
-let privacyFlash = "";  // one-time message for the privacy card
-function privacyCard(today) {
-  const status = h("span", { class: "status", text: privacyFlash });
-  privacyFlash = "";
-  const picker = h("input", { type: "date", value: today, max: today, "aria-label": "Day to delete", onchange: () => { status.textContent = ""; } });
-  const delHour = h("button", { class: "danger", text: "Delete last hour", onclick: async () => {
-    if (!confirm("Delete everything recorded in the last hour (activity and screenshots)? This cannot be undone.")) return;
-    try { const r = await post("/api/delete", { range: "hour" }); privacyFlash = `Deleted the last hour (${r.screenshots_removed} screenshots).`; render(); }
-    catch (e) { status.textContent = `Could not delete: ${e.message}`; }
-  } });
-  const delDay = h("button", { class: "danger", text: "Delete this day", onclick: async () => {
-    const day = picker.value;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { status.textContent = "Pick a day first."; return; }
-    if (day > today) { status.textContent = "That day has not happened yet."; return; }
-    try {
-      const res = await fetch(`/api/day_summary?day=${encodeURIComponent(day)}`);
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
-      const s = await res.json();
-      if (s.empty) { status.textContent = `Nothing is recorded for ${day}.`; return; }
-      const parts = [`${mins(s.activity_min)} of activity`, `${s.screenshots} screenshot${s.screenshots === 1 ? "" : "s"}`];
-      if (s.goal) parts.push("the day's goal");
-      const weeks = s.plans.length ? `\nThe saved weekly plan${s.plans.length === 1 ? "" : "s"} for ${s.plans.join(", ")} will be rebuilt without this day (any AI review is cleared).` : "";
-      const live = day === today ? "\nThe tracker keeps running and records again from now on." : "";
-      if (!confirm(`Delete ALL data for ${day} (${clock(s.bounds[0])} to ${clock(s.bounds[1])} next day): ${parts.join(", ")}, plus idle/lock states and break answers?${weeks}${live}\nThis cannot be undone.`)) return;
-      const r = await post("/api/delete", { range: "day", day });
-      privacyFlash = `Deleted all data for ${day} (${r.screenshots_removed} screenshots).`;
-      render();
-    } catch (e) { status.textContent = `Could not delete: ${e.message}`; }
-  } });
-  return card("Privacy: delete recorded data",
-    h("p", { class: "muted", text: "A day runs from the day-start hour to the same hour the next morning (local time). Deleting removes activity, switches, screenshots, breaks and the goal." }),
-    h("div", { class: "actions" }, delHour, picker, delDay, status));
+// Settings ---------------------------------------------------------------------------
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const THEMES = [
+  { id: "auto", name: "Match Windows", bg: "linear-gradient(135deg, #f6f6f4 50%, #0f1724 50%)" },
+  { id: "light", name: "Light", bg: "#f6f6f4" },
+  { id: "slate", name: "Slate (navy)", bg: "#0f1724", fg: "#172131" },
+  { id: "indigo", name: "Indigo", bg: "#14132b", fg: "#1d1b3a" },
+  { id: "teal", name: "Deep teal", bg: "#0c1d22", fg: "#12282f" },
+  { id: "graphite", name: "Graphite", bg: "#121211", fg: "#1a1a19" },
+];
+const LISTS = [
+  ["exclude_processes", "Never recorded: apps", "Window titles logged as [excluded], no screenshots.", "name.exe"],
+  ["exclude_title_keywords", "Never recorded: title keywords", "Any window whose title contains one of these.", "keyword"],
+  ["exclude_domains", "Never recorded: sites", "Also covers their subdomains.", "example.com"],
+  ["no_screenshot_title_keywords", "No screenshots: title keywords", "Time still counts; the title is kept.", "keyword"],
+  ["no_screenshot_domains", "No screenshots: sites", "Time still counts; the title is kept.", "example.com"],
+];
+const SETTING_NAMES = {
+  screenshot_interval_s: "screenshot interval", idle_threshold_s: "idle time", wipe_weekday: "wipe day",
+  wipe_time: "wipe time", max_storage_gb: "storage cap", day_rollover_hour: "day start", pause_hotkey: "pause hotkey",
+  deep_work_goal_h: "deep-work goal", ask_daily_goal: "daily goal prompt", ask_after_break: "break question",
+  ai_review: "AI review",
+};
+
+function getTheme() { try { return localStorage.getItem("focus-theme") || "auto"; } catch (_e) { return "auto"; } }
+function setTheme(id) {
+  try { if (id === "auto") localStorage.removeItem("focus-theme"); else localStorage.setItem("focus-theme", id); } catch (_e) { /* storage blocked */ }
+  if (id === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = id;
 }
 
-async function pageSettings() {
-  const d = await api("/api/settings");
-  const list = (items) => items.length ? h("div", { class: "tags" }, items.map((x) => h("span", { text: x }))) : h("span", { class: "muted", text: "none" });
-  const status = h("span", { class: "status", text: flash });
-  flash = "";
+function field(label, control, help) {
+  return h("div", { class: "field" }, h("span", { class: "lbl", text: label }), h("div", { class: "row" }, control), help ? h("span", { class: "help", text: help }) : null);
+}
+function numberInput(value, min, max, step, label) {
+  return h("input", { type: "number", value, min, max, step, required: true, "aria-label": label });
+}
+function select(options, value, label) {
+  const el = h("select", { "aria-label": label }, options.map(([v, t]) => h("option", { value: String(v), text: t })));
+  el.value = String(value);
+  return el;
+}
+
+function trackingCard(d) {
+  const v = d.values;
+  const interval = numberInput(v.screenshot_interval_s, 1, 600, 1, "Screenshot interval in seconds");
+  const idle = numberInput(Math.round(v.idle_threshold_s / 6) / 10, 1, 120, 0.5, "Idle after minutes");
+  const dayStart = select([...Array(24).keys()].map((i) => [i, hour12(i)]), v.day_rollover_hour, "Day starts at");
+  const goal = numberInput(v.deep_work_goal_h, 0.5, 16, 0.5, "Deep-work goal in hours");
+  const hotkey = h("input", { type: "text", value: v.pause_hotkey, placeholder: "ctrl+alt+p", maxlength: 40, "aria-label": "Pause hotkey" });
+  const [wh, wm] = v.wipe_time.split(":").map(Number);
+  const wipeDay = select(WEEKDAYS.map((n, i) => [i, n]), v.wipe_weekday, "Wipe day");
+  const wipeH = select([...Array(12).keys()].map((i) => [i + 1, String(i + 1)]), (wh % 12) || 12, "Wipe hour");
+  const wipeM = select([...Array(60).keys()].map((i) => [i, pad(i)]), wm, "Wipe minute");
+  const wipeAp = select([["AM", "AM"], ["PM", "PM"]], wh < 12 ? "AM" : "PM", "AM or PM");
+  const cap = numberInput(v.max_storage_gb, 1, 2000, 0.5, "Storage cap in GB");
+  const checks = [["ask_daily_goal", "Ask for the day's goal at the first unlock"], ["ask_after_break", "Ask what a break was when I come back"],
+    ["ai_review", "Write the weekly AI review automatically (sends redacted weekly numbers to Claude)"]]
+    .map(([key, text]) => [key, h("input", { type: "checkbox", "aria-label": text, ...(v[key] ? { checked: "" } : {}) }), text]);
+  const save = h("button", { class: "primary", text: "Save changes" });
+
+  function edits() {
+    const hr = (+wipeH.value % 12) + (wipeAp.value === "PM" ? 12 : 0);
+    const next = {
+      screenshot_interval_s: Number(interval.value), idle_threshold_s: Math.round(Number(idle.value) * 60),
+      day_rollover_hour: Number(dayStart.value), deep_work_goal_h: Number(goal.value), pause_hotkey: hotkey.value.trim().toLowerCase(),
+      wipe_weekday: Number(wipeDay.value), wipe_time: `${pad(hr)}:${pad(+wipeM.value)}`, max_storage_gb: Number(cap.value),
+    };
+    for (const [key, box] of checks) next[key] = box.checked;
+    const out = {};
+    for (const [k, val] of Object.entries(next)) if (val !== v[k]) out[k] = val;
+    return out;
+  }
+  save.addEventListener("click", async () => {
+    for (const el of [interval, idle, goal, cap]) if (!el.reportValidity()) return;
+    const changes = edits();
+    if (!Object.keys(changes).length) { toast("Nothing changed."); return; }
+    const warnings = [];
+    if ("max_storage_gb" in changes && changes.max_storage_gb < d.storage_gb) warnings.push(`Screenshots use ${d.storage_gb} GB, more than the new ${changes.max_storage_gb} GB cap: the oldest days of screenshots will be deleted within 10 minutes.`);
+    if ("day_rollover_hour" in changes) warnings.push(`Days will run from ${hour12(changes.day_rollover_hour)} to ${hour12(changes.day_rollover_hour)}. Past days are re-counted with the new start.`);
+    if ("wipe_weekday" in changes || "wipe_time" in changes) warnings.push("The weekly wipe and weekly plan move to the new day and time, starting with the next one. Nothing is wiped now.");
+    if (warnings.length && !(await ask({ title: "Save these settings?", body: warnings, ok: "Save" }))) return;
+    try {
+      const r = await post("/api/settings", changes);
+      toast(r.changed.length ? `Saved and applied: ${r.changed.map((k) => SETTING_NAMES[k] || k).join(", ")}.` : "Nothing changed.");
+      render();
+    } catch (e) { toast(`Could not save: ${e.message}`, "error"); }
+  });
+  const reset = h("button", { text: "Undo changes", onclick: () => render() });
+  return h("section", { class: "card", id: "s-tracking" },
+    h("h2", {}, "Tracking", h("span", { class: "hint", text: `saved to ${d.config_file}, applied right away` })),
+    h("div", { class: "group-title", text: "Recording" }),
+    h("div", { class: "form" },
+      field("Screenshot every", [interval, h("span", { class: "muted", text: "seconds" })], "One picture per monitor while you are active or watching."),
+      field("Idle after", [idle, h("span", { class: "muted", text: "minutes" })], "No mouse or keyboard input for this long = idle (no screenshots). Sound playing counts as watching."),
+      field("Pause hotkey", hotkey, "Pauses for 15 minutes. Modifiers + one letter or digit, e.g. ctrl+alt+p. Empty turns it off.")),
+    h("div", { class: "group-title", text: "Days and goals" }),
+    h("div", { class: "form" },
+      field("Day starts at", dayStart, "Work after midnight still counts for the day before."),
+      field("Deep-work goal", [goal, h("span", { class: "muted", text: "hours a day" })], "The weekly plan ramps toward this."),
+      h("div", { class: "field" }, checks.map(([, box, text]) => h("label", { class: "check" }, box, h("span", { text }))))),
+    h("div", { class: "group-title", text: "Screenshot storage" }),
+    h("div", { class: "form" },
+      field("Weekly wipe of all screenshots", [wipeDay, "at", wipeH, wipeM, wipeAp], "The activity log is kept; only pictures are wiped."),
+      field("Storage cap", [cap, h("span", { class: "muted", text: `GB (now using ${d.storage_gb} GB)` })], "Oldest screenshot days are deleted first if the cap is reached.")),
+    h("div", { class: "actions" }, save, reset));
+}
+
+function themeCard() {
+  const current = getTheme();
+  return h("section", { class: "card", id: "s-theme" }, h("h2", {}, "Appearance", h("span", { class: "hint", text: "saved in this browser" })),
+    h("div", { class: "themes" }, THEMES.map((t) => h("button", {
+      class: "swatch" + (t.id === current ? " on" : ""), "aria-pressed": String(t.id === current),
+      onclick: () => { setTheme(t.id); render(); },
+    }, h("i", { style: { background: t.fg ? `linear-gradient(180deg, ${t.fg} 0 30%, ${t.bg} 30%)` : t.bg } }), h("span", { text: t.name })))));
+}
+
+function listsCard(d) {
+  const state = {};
+  const editors = LISTS.map(([key, title, help, placeholder]) => {
+    state[key] = [...d.values[key]];
+    const locked = new Set(d.built_in[key]);
+    const original = new Set(d.values[key]);
+    const chips = h("div", { class: "tags" });
+    const draw = () => chips.replaceChildren(...(state[key].length ? state[key].map((item) => locked.has(item)
+      ? h("span", { class: "chip locked", tip: "Built-in protection: cannot be removed here" }, icon("lock"), item)
+      : h("span", { class: "chip" + (original.has(item) ? "" : " new") }, item,
+          h("button", { type: "button", "aria-label": `Remove ${item}`, text: "×", onclick: () => { state[key] = state[key].filter((x) => x !== item); draw(); } })))
+      : [h("span", { class: "muted", text: "none" })]));
+    const input = h("input", { type: "text", placeholder, maxlength: 100, "aria-label": `Add to ${title}` });
+    const add = () => {
+      const val = input.value.trim().toLowerCase();
+      if (!val) return;
+      if (!state[key].includes(val)) state[key].push(val);
+      input.value = "";
+      draw();
+    };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
+    draw();
+    return h("div", { class: "listed" }, h("div", { class: "lbl", text: title }), h("div", { class: "muted", text: help }), chips,
+      h("div", { class: "actions" }, input, h("button", { type: "button", text: "Add", onclick: add })));
+  });
+  const save = h("button", { class: "primary", text: "Save lists", onclick: async () => {
+    const changes = {}, removed = [];
+    for (const [key] of LISTS) {
+      if (JSON.stringify(state[key]) !== JSON.stringify(d.values[key])) changes[key] = state[key];
+      removed.push(...d.values[key].filter((x) => !state[key].includes(x)));
+    }
+    if (!Object.keys(changes).length) { toast("Nothing changed."); return; }
+    if (removed.length && !(await ask({
+      title: "Remove these protections?", danger: true, ok: "Remove and save",
+      body: ["These will be recorded (and screenshotted, unless another rule still blocks them) from now on:", h("ul", {}, removed.map((x) => h("li", { text: x })))],
+    }))) return;
+    try {
+      await post("/api/settings", changes);
+      toast("Privacy lists saved and applied.");
+      render();
+    } catch (e) { toast(`Could not save: ${e.message}`, "error"); }
+  } });
+  return h("section", { class: "card", id: "s-lists" },
+    h("h2", {}, "Privacy lists", h("span", { class: "hint", text: "built-in entries (lock icon) stay; add your own" })),
+    editors, h("div", { class: "actions" }, save, h("button", { text: "Undo changes", onclick: () => render() })));
+}
+
+function queueCard(d) {
   const queue = d.queue.length ? h("table", {},
     h("thead", {}, h("tr", {}, h("th", { text: "Site or app" }), h("th", { text: "Page or window" }), h("th", { class: "num", text: "7 days" }), h("th", { text: "Category" }))),
     h("tbody", {}, d.queue.map((q) => {
       const sel = h("select", { "aria-label": `Category for ${q.key}` }, h("option", { value: "", text: "Choose…" }), d.categories.map((c) => h("option", { value: c, text: c })));
       const all = h("input", { type: "checkbox", "aria-label": `Use for all of ${q.key}` });
       const save = h("button", { text: "Save", onclick: async () => {
-        if (!sel.value) return;
+        if (!sel.value) { toast("Pick a category first.", "error"); return; }
         const scope = all.checked ? "all" : "page";
         try {
           await post("/api/tag", { kind: q.kind, key: q.key, title: q.title, scope, category: sel.value });
-          flash = scope === "all" ? `All of ${q.key} is now ${sel.value}.` : `That page is now ${sel.value}.`;
+          toast(scope === "all" ? `All of ${q.key} is now ${sel.value}.` : `That page is now ${sel.value}.`);
           render();
-        } catch (e) { status.textContent = `Could not save: ${e.message}`; }
+        } catch (e) { toast(`Could not save: ${e.message}`, "error"); }
       } });
       return h("tr", {}, h("td", { text: `${q.key} (${q.kind})` }), h("td", { class: "muted", text: q.example }),
         h("td", { class: "num", text: mins(q.minutes) }),
         h("td", {}, h("div", { class: "actions" }, sel, h("label", { class: "muted" }, all, ` all of ${q.key}`), save)));
     }))) : empty("Everything in the last 7 days was sorted by its screen text or a rule.");
-  return [
-    privacyCard(d.today),
-    card("Not sure (Other): check these", h("p", { class: "muted", text: `Most time is sorted from the screen text. These pages could not be: pick a category for that page, or tick the box for the whole site or app. Saved to ${d.rules_file} (git-ignored); your choice beats the screen text. Productive: ${d.productive.join(", ")}. Neutral (neither work nor distraction): ${d.neutral.join(", ")}.` }), queue, status),
-    card("Current settings (edit config.toml, then restart the tracker)", h("table", {}, h("tbody", {},
-      [["Screenshots", `every ${d.screenshot_interval_s} s while active`], ["Idle after", `${d.idle_threshold_min} min`],
-       ["Weekly wipe", d.wipe], ["Storage", `${d.storage_gb} GB of ${d.max_storage_gb} GB cap`], ["Day starts", d.day_starts],
-       ["Pause hotkey", d.pause_hotkey || "off"]].map(([k, v]) => h("tr", {}, h("th", { text: k }), h("td", { text: v })))))),
-    card("Never recorded (logged as [excluded])", h("p", { class: "muted", text: "Apps" }), list(d.exclude_processes),
-      h("p", { class: "muted", text: "Title keywords" }), list(d.exclude_title_keywords), h("p", { class: "muted", text: "Sites" }), list(d.exclude_domains)),
-    card("No screenshots (time still counts)", h("p", { class: "muted", text: "Title keywords" }), list(d.no_screenshot_title_keywords),
-      h("p", { class: "muted", text: "Sites" }), list(d.no_screenshot_domains)),
-  ];
+  return h("section", { class: "card", id: "s-sort" }, h("h2", { text: "Not sure (Other): check these" }),
+    h("p", { class: "muted", text: `Most time is sorted from the screen text. These pages could not be: pick a category for that page, or tick the box for the whole site or app. Saved to ${d.rules_file} (git-ignored); your choice beats the screen text. Productive: ${d.productive.join(", ")}. Neutral (neither work nor distraction): ${d.neutral.join(", ")}.` }), queue);
+}
+
+// Delete recorded data: two separate boxes, one date picker (for the whole-day delete only).
+function deleteCard(today) {
+  const delHour = h("button", { class: "solid-danger", text: "Delete the last hour", onclick: async () => {
+    if (!(await ask({ title: "Delete the last hour?", danger: true, ok: "Delete last hour",
+      body: [`Everything recorded since ${clock(Date.now() / 1000 - 3600)}: activity, switches and screenshots.`, "This cannot be undone."] }))) return;
+    try {
+      const r = await post("/api/delete", { range: "hour" });
+      toast(`Deleted the last hour: all activity and ${plural(r.screenshots_removed, "screenshot")}.`);
+      render();
+    } catch (e) { toast(`Could not delete: ${e.message}`, "error"); }
+  } });
+
+  const picker = h("input", { type: "date", value: today, max: today, "aria-label": "Day to delete" });
+  const preview = h("div", { class: "preview" });
+  const delDay = h("button", { class: "solid-danger", text: "Delete this day" });
+  let summary = null, seq = 0;
+  async function load() {
+    const day = picker.value, mine = ++seq;
+    summary = null;
+    delDay.disabled = true;
+    delDay.textContent = "Delete this day";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { preview.textContent = "Pick a day."; return; }
+    if (day > today) { preview.textContent = "That day has not happened yet."; return; }
+    preview.textContent = "Checking…";
+    try {
+      const res = await fetch(`/api/day_summary?day=${encodeURIComponent(day)}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      const s = await res.json();
+      if (mine !== seq) return;  // the picker changed meanwhile
+      if (s.empty) { preview.textContent = `Nothing is recorded for ${longDate(day)}.`; return; }
+      summary = s;
+      const bits = [`${mins(s.activity_min)} of activity`, plural(s.screenshots, "screenshot")];
+      if (s.goal) bits.push("the goal");
+      preview.textContent = `${longDate(day)}, ${clock(s.bounds[0])} to ${clock(s.bounds[1])} next day: ${bits.join(", ")}.`;
+      delDay.textContent = `Delete ${longDate(day)}`;
+      delDay.disabled = false;
+    } catch (e) { if (mine === seq) preview.textContent = `Could not check that day: ${e.message}`; }
+  }
+  picker.addEventListener("change", load);
+  delDay.addEventListener("click", async () => {
+    const s = summary;
+    if (!s) return;
+    const day = s.day;
+    const body = [`${longDate(day)} runs from ${clock(s.bounds[0])} to ${clock(s.bounds[1])} the next morning. This removes:`,
+      h("ul", {}, [`${mins(s.activity_min)} of activity and switches`, plural(s.screenshots, "screenshot"),
+        s.goal ? "the day's goal" : null, "idle and lock times, and break answers"].filter(Boolean).map((t) => h("li", { text: t })))];
+    if (s.plans.length) body.push(`The saved weekly plan${s.plans.length === 1 ? "" : "s"} for the week ending ${s.plans.join(", ")} will be rebuilt without this day (any AI review is cleared).`);
+    if (day === today) body.push("The tracker keeps running and records again from now on.");
+    body.push("This cannot be undone.");
+    if (!(await ask({ title: `Delete all data for ${longDate(day)}?`, body, danger: true, ok: "Delete this day" }))) return;
+    try {
+      const r = await post("/api/delete", { range: "day", day });
+      const rebuilt = r.plans_rebuilt.length ? ` Rebuilt ${plural(r.plans_rebuilt.length, "weekly plan")}.` : "";
+      toast(`Deleted all data for ${longDate(day)}: ${mins(s.activity_min)} of activity and ${plural(r.screenshots_removed, "screenshot")}.${rebuilt}`);
+      render();
+    } catch (e) { toast(`Could not delete: ${e.message}`, "error"); }
+  });
+  load();
+  return h("section", { class: "card danger-zone", id: "s-delete" }, h("h2", { text: "Delete recorded data" }),
+    h("p", { class: "muted", text: "Both delete activity, switches, screenshots and break answers. Deleted data cannot be recovered." }),
+    h("div", { class: "cols" },
+      h("div", { class: "danger-box" }, h("h3", { text: "Last hour" }),
+        h("p", { class: "muted", text: "Something private was on screen a moment ago? Remove the last 60 minutes." }), h("div", {}, delHour)),
+      h("div", { class: "danger-box" }, h("h3", { text: "A whole day" }),
+        h("p", { class: "muted", text: "A day runs from the day-start hour to the same hour the next morning, and includes its goal." }),
+        h("label", { class: "field" }, h("span", { class: "lbl", text: "Day to delete" }), picker), preview, h("div", {}, delDay))));
+}
+
+async function pageSettings() {
+  const d = await api("/api/settings");
+  const jump = h("div", { class: "jump" }, [["s-tracking", "Tracking"], ["s-theme", "Appearance"], ["s-lists", "Privacy lists"],
+    ["s-sort", `Not sure (${d.queue.length})`], ["s-delete", "Delete data"]].map(([id, text]) =>
+    h("button", { text, onclick: () => document.getElementById(id).scrollIntoView({ behavior: "smooth", block: "start" }) })));
+  return [jump, trackingCard(d), themeCard(), listsCard(d), queueCard(d), deleteCard(d.today)];
 }
 
 // router -----------------------------------------------------------------------------
 const PAGES = { today: pageToday, focus: pageFocus, distractions: pageDistractions, replay: pageReplay, plan: pagePlan, settings: pageSettings };
+const TITLES = { today: "Today", focus: "Focus", distractions: "Distractions", replay: "Replay", plan: "Weekly plan", settings: "Settings" };
+const DAY_PAGES = new Set(["today", "focus", "distractions", "replay"]);  // pages that use the day picker
 async function render() {
-  const page = (location.hash.slice(1) || "today").split("?")[0];
-  const fn = PAGES[page] || pageToday;
-  for (const a of document.querySelectorAll("nav a")) a.classList.toggle("on", a.getAttribute("href") === `#${page}`);
+  let page = (location.hash.slice(1) || "today").split("?")[0];
+  if (!PAGES[page]) page = "today";
+  for (const a of document.querySelectorAll("nav a")) {
+    const on = a.getAttribute("href") === `#${page}`;
+    a.classList.toggle("on", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
+  document.getElementById("title").textContent = TITLES[page];
+  document.getElementById("daypick").hidden = !DAY_PAGES.has(page);
+  document.title = `${TITLES[page]} · Focus tracker`;
   if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
   clearTimeout(refreshTimer);
+  const y = window.scrollY;
   try {
-    const nodes = await fn();
+    const nodes = await PAGES[page]();
     main.replaceChildren(...nodes);
+    if (page === "settings") window.scrollTo(0, y);  // re-render after a save keeps your place
   } catch (e) {
     main.replaceChildren(card("Could not load", empty(e.message)));
   }
@@ -487,5 +738,5 @@ function shiftDay(n) {
 document.getElementById("prev").addEventListener("click", () => shiftDay(-1));
 document.getElementById("next").addEventListener("click", () => shiftDay(1));
 dayInput.addEventListener("change", render);
-window.addEventListener("hashchange", render);
+window.addEventListener("hashchange", () => { window.scrollTo(0, 0); render(); });
 render();

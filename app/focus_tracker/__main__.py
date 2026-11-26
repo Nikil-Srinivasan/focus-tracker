@@ -122,7 +122,12 @@ def main(argv: list[str] | None = None) -> None:
             agent.pause(PAUSE_HOTKEY_S)
 
     system.start_switch_watcher(parse_hotkey(cfg.pause_hotkey), toggle_pause)
-    dashboard = start_dashboard(Dashboard(cfg, store, agent), cfg.dashboard_port)
+    set_hotkey = getattr(system, "set_hotkey", None)
+    dash = Dashboard(
+        cfg, store, agent, config_path=args.config or ROOT / "config.toml",
+        apply_hotkey=(lambda text: set_hotkey(parse_hotkey(text))) if set_hotkey else None,
+    )
+    dashboard = start_dashboard(dash, cfg.dashboard_port)
     dashboard_url = f"http://127.0.0.1:{cfg.dashboard_port}/" if dashboard else None
     worker = threading.Thread(target=agent.run, args=(stop,), name="agent")
     worker.start()

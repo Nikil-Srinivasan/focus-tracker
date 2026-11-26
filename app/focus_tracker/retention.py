@@ -13,6 +13,9 @@ from .db import Store
 log = logging.getLogger(__name__)
 
 LAST_WIPE_KEY = "last_wipe_ts"
+# When the wipe day/time was last changed: earlier boundaries of the new schedule
+# are skipped (no surprise wipe or weekly plan the moment it is saved).
+SCHEDULE_CHANGED_KEY = "wipe_schedule_changed_ts"
 
 
 def last_wipe_boundary(now: datetime, weekday: int, hour: int, minute: int) -> datetime:
