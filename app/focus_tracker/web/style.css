@@ -136,14 +136,14 @@ h2 { font-size: 15px; margin: 0 0 10px; }
 .vbars > div { flex: 1; display: flex; align-items: flex-end; height: 100%; }
 .vbars > div > span { display: block; width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 1px; }
 .vlabels { display: flex; gap: 2px; color: var(--muted); font-size: 10px; }
-.vlabels > span { flex: 1; text-align: center; overflow: hidden; }
+.vlabels > span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; }
 
 /* heatmap */
 .heat { display: grid; grid-template-columns: 70px repeat(24, 1fr); gap: 2px; font-size: 10px; color: var(--muted); }
 .heat > i { aspect-ratio: 1.6; border-radius: 2px; background: var(--seq-0); min-height: 8px; }
 .heat .q1 { background: var(--seq-1); } .heat .q2 { background: var(--seq-2); } .heat .q3 { background: var(--seq-3); }
 .heat .q4 { background: var(--seq-4); } .heat .q5 { background: var(--seq-5); }
-.heat > b { font-weight: 400; text-align: center; }
+.heat > b { font-weight: 400; text-align: center; white-space: nowrap; }
 
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }

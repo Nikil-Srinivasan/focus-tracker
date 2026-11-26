@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta
 
 from . import metrics
 from .db import Store
+from .timefmt import hour12
 
 MIN_DAY_ACTIVE_S = 30 * 60  # a day counts as tracked with 30+ min active
 FULL_CONFIDENCE_DAYS = 5
@@ -358,7 +359,7 @@ def best_hours(store: Store, classifier: metrics.Classifier, end_day: date, roll
     if sum(totals) < 60:
         return None
     start = max(range(23), key=lambda h: totals[h] + totals[h + 1])
-    return f"{start:02d}:00 to {start + 2:02d}:00"
+    return f"{hour12(start)} to {hour12(start + 2)}"
 
 
 def build_plan(store: Store, classifier: metrics.Classifier, end_day: date, rollover_hour: int, now: float,

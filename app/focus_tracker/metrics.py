@@ -29,6 +29,7 @@ from .categorize import (  # noqa: F401  categorize is re-exported
 )
 from .db import Store
 from .goal import BREAK_LABELS, REST_LABELS
+from .timefmt import clock12
 
 DEEP_MIN_S = 25 * 60
 MAX_INTERRUPT_S = 60
@@ -498,7 +499,7 @@ def day_edges(store: Store, end_day: date, rollover_hour: int, now: float, days:
         base = datetime.combine(end_day, datetime.min.time()) + timedelta(hours=rollover_hour)
 
         def fmt(off: float) -> str:
-            return (base + timedelta(seconds=off)).strftime("%H:%M")
+            return clock12(base + timedelta(seconds=off))
 
         return {"median": fmt(statistics.median(offsets)), "earliest": fmt(min(offsets)),
                 "latest": fmt(max(offsets)), "days": len(offsets)}

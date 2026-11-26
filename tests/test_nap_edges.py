@@ -145,9 +145,9 @@ def test_day_edges_per_day_and_typical(store):
     assert rows["2026-11-23"]["first"] == at(23, 10, 0) and rows["2026-11-23"]["last"] == at(24, 2, 0)
     assert rows["2026-11-23"]["active_min"] == 30
     assert rows["2026-11-24"]["still_on"] and not rows["2026-11-23"]["still_on"]
-    assert e["start"] == {"median": "09:30", "earliest": "08:00", "latest": "10:00", "days": 3}
+    assert e["start"] == {"median": "9:30 AM", "earliest": "8:00 AM", "latest": "10:00 AM", "days": 3}
     # Today's stop is not final, so the usual last out uses the two finished days.
-    assert e["stop"] == {"median": "00:30", "earliest": "23:00", "latest": "02:00", "days": 2}
+    assert e["stop"] == {"median": "12:30 AM", "earliest": "11:00 PM", "latest": "2:00 AM", "days": 2}
 
 
 def test_day_edges_skip_future_days_and_clip(store):

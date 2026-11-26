@@ -25,6 +25,7 @@ from . import metrics, plan, review
 from .categorize import NEUTRAL, PRODUCTIVE, load_rules
 from .config import ROOT, Config
 from .db import Store
+from .timefmt import hhmm12, hour12
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -194,10 +195,10 @@ class Dashboard:
         return {
             "screenshot_interval_s": cfg.screenshot_interval_s,
             "idle_threshold_min": round(cfg.idle_threshold_s / 60, 1),
-            "wipe": f"{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][cfg.wipe_weekday]} {cfg.wipe_time}",
+            "wipe": f"{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][cfg.wipe_weekday]} {hhmm12(cfg.wipe_time)}",
             "max_storage_gb": cfg.max_storage_gb,
             "storage_gb": round(self.store.live_screenshot_bytes() / 1024**3, 2),
-            "day_starts": f"{cfg.day_rollover_hour:02d}:00",
+            "day_starts": hour12(cfg.day_rollover_hour),
             "exclude_processes": cfg.exclude_processes,
             "exclude_title_keywords": cfg.exclude_title_keywords,
             "exclude_domains": cfg.exclude_domains,

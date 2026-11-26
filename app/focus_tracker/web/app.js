@@ -32,8 +32,13 @@ function h(tag, props, ...kids) {
 }
 const slug = (s) => "c-" + String(s).replace(/[^a-z]/gi, "");
 const pad = (n) => String(n).padStart(2, "0");
-const clock = (ts) => { const d = new Date(ts * 1000); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-const clockS = (ts) => { const d = new Date(ts * 1000); return `${clock(ts)}:${pad(d.getSeconds())}`; };
+// Every time shown is 12-hour with AM/PM (9:05 AM); stored data stays epoch seconds.
+const ampm = (hr) => (hr % 24 < 12 ? "AM" : "PM");
+const hour12 = (hr) => `${(hr % 12) || 12} ${ampm(hr)}`;
+const clock = (ts) => { const d = new Date(ts * 1000); return `${(d.getHours() % 12) || 12}:${pad(d.getMinutes())} ${ampm(d.getHours())}`; };
+const clockS = (ts) => { const d = new Date(ts * 1000); return `${(d.getHours() % 12) || 12}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ${ampm(d.getHours())}`; };
+// Plans saved before the 12-hour switch hold "09:00 to 11:00": show them as "9 AM to 11 AM".
+const hours12Text = (s) => String(s).replace(/\b(\d{2}):00\b/g, (_m, hr) => hour12(Number(hr)));
 function mins(m) {
   if (m == null) return "–";
   m = Math.round(m);
@@ -166,7 +171,7 @@ async function pageToday() {
   const hours = hourWindow(d.hourly_switches);
   out.push(h("div", { class: "cols" },
     card("Time by category", hbars(d.categories, undefined, (r) => slug(r.label))),
-    card("Switches per hour of day", vbars(hours.map((i) => d.hourly_switches[i]), hours.map((i) => `${pad(i)}:00`), "switches"))));
+    card("Switches per hour of day", vbars(hours.map((i) => d.hourly_switches[i]), hours.map((i) => hour12(i)), "switches"))));
   out.push(card("Deep work sessions", sessionCards(d.cards)));
   if (d.breaks.length) {
     out.push(card("Breaks (back-from-break answers)", h("div", { class: "tags" },
@@ -213,7 +218,7 @@ function edgesCard(e, selected) {
     ];
   }));
   const axis = h("div", { class: "edge-axis" }, axisHours.map((i) => h("span", {
-    style: { left: `${(i / 24) * 100}%` }, text: `${pad((e.rollover_hour + i) % 24)}:00`,
+    style: { left: `${(i / 24) * 100}%` }, text: hour12(e.rollover_hour + i),
   })));
   return card("Start and stop times (last 14 days)", typical.length ? h("div", { class: "grid" }, typical) : null, lines,
     h("div", { class: "edges" }, h("span", {}), axis, h("span", {})),
@@ -233,12 +238,12 @@ async function pageFocus() {
   const max = Math.max(...all, 1);
   const grid = h("div", { class: "heat", role: "img", "aria-label": "Deep work minutes by hour, last 4 weeks" });
   grid.append(h("b", {}));
-  for (let i = 0; i < 24; i++) grid.append(h("b", { text: i % 3 === 0 ? pad(i) : "" }));
+  for (let i = 0; i < 24; i++) grid.append(h("b", { text: i % 3 === 0 ? hour12(i) : "" }));
   for (const r of rows) {
     grid.append(h("span", { text: r.day.slice(5) }));
     r.minutes.forEach((m, i) => grid.append(h("i", {
       class: m ? `q${Math.min(5, Math.ceil((m / max) * 5))}` : "",
-      tip: `${r.day} ${pad(i)}:00  ${m} min deep work`,
+      tip: `${r.day} ${hour12(i)}  ${m} min deep work`,
     })));
   }
   out.push(card("Peak focus hours (deep-work minutes, last 4 weeks)", grid,
@@ -262,7 +267,7 @@ async function pageDistractions() {
   const hours = hourWindow(c.by_hour);
   out.push(card("Communication pull",
     h("div", { class: "grid" }, kpi("Visits", String(c.visits)), kpi("Per active hour", String(c.per_hour)), kpi("Median visit", mins(c.median_min))),
-    c.visits ? vbars(hours.map((i) => c.by_hour[i]), hours.map((i) => `${pad(i)}:00`), "visits") : null));
+    c.visits ? vbars(hours.map((i) => c.by_hour[i]), hours.map((i) => hour12(i)), "visits") : null));
   out.push(card("Rabbit holes (20+ min off-goal right after on-goal work)",
     d.rabbit_holes.length ? h("table", {},
       h("thead", {}, h("tr", {}, h("th", { text: "Start" }), h("th", { text: "From" }), h("th", { text: "Sites" }), h("th", { class: "num", text: "Length" }))),
@@ -341,14 +346,14 @@ async function pagePlan() {
   sel.value = showPreview ? "preview" : p.end_day;
   sel.addEventListener("change", () => { planWeek = sel.value; render(); });
   const out = [h("div", { class: "actions" }, sel,
-    h("span", { class: "muted", text: showPreview ? "Saved plans are made every Sunday night, before the screenshot wipe." : `Saved ${new Date(p.created * 1000).toLocaleString()}` }))];
+    h("span", { class: "muted", text: showPreview ? "Saved plans are made every Sunday night, before the screenshot wipe." : `Saved ${new Date(p.created * 1000).toLocaleString(undefined, { hour12: true })}` }))];
   out.push(h("p", {}));
   if (p.confidence === "low") out.push(h("div", { class: "banner", text: `Low confidence. ${p.confidence_note}` }));
   out.push(h("div", { class: "grid" },
     kpi("Tracked days", String(p.tracked_days), `${p.start_day} to ${p.end_day}`),
     kpi("Active", `${p.active_h} h`),
     kpi("Deep work", `${p.deep_h_per_day} h/day`, p.deep.target_h ? `next week's bar ${p.deep.target_h} h/day` : "baseline weeks"),
-    kpi("Best hours for deep work", p.best_hours || "–", "from the last 4 weeks")));
+    kpi("Best hours for deep work", p.best_hours ? hours12Text(p.best_hours) : "–", "from the last 4 weeks")));
   out.push(h("p", { class: "sub", text: p.deep.note }));
   const actionRows = (list) => h("table", {},
     h("thead", {}, h("tr", {}, h("th", { text: "#" }), h("th", { text: "Finding" }), h("th", { class: "num", text: "Cost / week" }),
