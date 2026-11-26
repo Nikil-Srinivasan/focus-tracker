@@ -79,12 +79,12 @@ const ICONS = {
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01",
   lock: "M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4",
 };
-function icon(name) {
+function icon(name) {  // a name from ICONS, or a raw path
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("aria-hidden", "true");
   const path = document.createElementNS(SVGNS, "path");
-  path.setAttribute("d", ICONS[name]);
+  path.setAttribute("d", ICONS[name] || name);
   svg.append(path);
   return svg;
 }
@@ -479,7 +479,8 @@ function select(options, value, label) {
   return el;
 }
 
-function trackingCard(d) {
+const STORAGE_KEYS = new Set(["wipe_weekday", "wipe_time", "max_storage_gb"]);
+function trackingCard(d, part) {  // part: "general" or "storage"; each saves only its own fields
   const v = d.values;
   const interval = numberInput(v.screenshot_interval_s, 1, 600, 1, "Screenshot interval in seconds");
   const idle = numberInput(Math.round(v.idle_threshold_s / 6) / 10, 1, 120, 0.5, "Idle after minutes");
@@ -506,11 +507,11 @@ function trackingCard(d) {
     };
     for (const [key, box] of checks) next[key] = box.checked;
     const out = {};
-    for (const [k, val] of Object.entries(next)) if (val !== v[k]) out[k] = val;
+    for (const [k, val] of Object.entries(next)) if (val !== v[k] && STORAGE_KEYS.has(k) === (part === "storage")) out[k] = val;
     return out;
   }
   save.addEventListener("click", async () => {
-    for (const el of [interval, idle, goal, cap]) if (!el.reportValidity()) return;
+    for (const el of part === "storage" ? [cap] : [interval, idle, goal]) if (!el.reportValidity()) return;
     const changes = edits();
     if (!Object.keys(changes).length) { toast("Nothing changed."); return; }
     const warnings = [];
@@ -525,28 +526,31 @@ function trackingCard(d) {
     } catch (e) { toast(`Could not save: ${e.message}`, "error"); }
   });
   const reset = h("button", { text: "Undo changes", onclick: () => render() });
-  return h("section", { class: "card", id: "s-tracking" },
-    h("h2", {}, "Tracking", h("span", { class: "hint", text: `saved to ${d.config_file}, applied right away` })),
+  const hint = h("span", { class: "hint", text: `saved to ${d.config_file}, applied right away` });
+  if (part === "storage") {
+    return h("section", { class: "card" }, h("h2", {}, "Screenshots and storage", hint),
+      h("div", { class: "form" },
+        field("Weekly wipe of all screenshots", [wipeDay, "at", wipeH, wipeM, wipeAp], "The activity log is kept; only pictures are wiped."),
+        field("Storage cap", [cap, h("span", { class: "muted", text: `GB (now using ${d.storage_gb} GB)` })], "Oldest screenshot days are deleted first if the cap is reached.")),
+      h("div", { class: "actions" }, save, reset));
+  }
+  return h("section", { class: "card" }, h("h2", {}, "Tracking", hint),
     h("div", { class: "group-title", text: "Recording" }),
     h("div", { class: "form" },
       field("Screenshot every", [interval, h("span", { class: "muted", text: "seconds" })], "One picture per monitor while you are active or watching."),
       field("Idle after", [idle, h("span", { class: "muted", text: "minutes" })], "No mouse or keyboard input for this long = idle (no screenshots). Sound playing counts as watching."),
-      field("Pause hotkey", hotkey, "Pauses for 15 minutes. Modifiers + one letter or digit, e.g. ctrl+alt+p. Empty turns it off.")),
+      field("Pause hotkey", hotkey, "Press once to pause for 15 minutes, press again to resume. Modifiers + one letter or digit, e.g. ctrl+alt+p. Empty turns it off.")),
     h("div", { class: "group-title", text: "Days and goals" }),
     h("div", { class: "form" },
       field("Day starts at", dayStart, "Work after midnight still counts for the day before."),
       field("Deep-work goal", [goal, h("span", { class: "muted", text: "hours a day" })], "The weekly plan ramps toward this."),
       h("div", { class: "field" }, checks.map(([, box, text]) => h("label", { class: "check" }, box, h("span", { text }))))),
-    h("div", { class: "group-title", text: "Screenshot storage" }),
-    h("div", { class: "form" },
-      field("Weekly wipe of all screenshots", [wipeDay, "at", wipeH, wipeM, wipeAp], "The activity log is kept; only pictures are wiped."),
-      field("Storage cap", [cap, h("span", { class: "muted", text: `GB (now using ${d.storage_gb} GB)` })], "Oldest screenshot days are deleted first if the cap is reached.")),
     h("div", { class: "actions" }, save, reset));
 }
 
 function themeCard() {
   const current = getTheme();
-  return h("section", { class: "card", id: "s-theme" }, h("h2", {}, "Appearance", h("span", { class: "hint", text: "saved in this browser" })),
+  return h("section", { class: "card" }, h("h2", {}, "Appearance", h("span", { class: "hint", text: "saved in this browser" })),
     h("div", { class: "themes" }, THEMES.map((t) => h("button", {
       class: "swatch" + (t.id === current ? " on" : ""), "aria-pressed": String(t.id === current),
       onclick: () => { setTheme(t.id); render(); },
@@ -595,7 +599,7 @@ function listsCard(d) {
       render();
     } catch (e) { toast(`Could not save: ${e.message}`, "error"); }
   } });
-  return h("section", { class: "card", id: "s-lists" },
+  return h("section", { class: "card" },
     h("h2", {}, "Privacy lists", h("span", { class: "hint", text: "built-in entries (lock icon) stay; add your own" })),
     editors, h("div", { class: "actions" }, save, h("button", { text: "Undo changes", onclick: () => render() })));
 }
@@ -619,7 +623,7 @@ function queueCard(d) {
         h("td", { class: "num", text: mins(q.minutes) }),
         h("td", {}, h("div", { class: "actions" }, sel, h("label", { class: "muted" }, all, ` all of ${q.key}`), save)));
     }))) : empty("Everything in the last 7 days was sorted by its screen text or a rule.");
-  return h("section", { class: "card", id: "s-sort" }, h("h2", { text: "Not sure (Other): check these" }),
+  return h("section", { class: "card" }, h("h2", { text: "Not sure (Other): check these" }),
     h("p", { class: "muted", text: `Most time is sorted from the screen text. These pages could not be: pick a category for that page, or tick the box for the whole site or app. Saved to ${d.rules_file} (git-ignored); your choice beats the screen text. Productive: ${d.productive.join(", ")}. Neutral (neither work nor distraction): ${d.neutral.join(", ")}.` }), queue);
 }
 
@@ -681,7 +685,7 @@ function deleteCard(today) {
     } catch (e) { toast(`Could not delete: ${e.message}`, "error"); }
   });
   load();
-  return h("section", { class: "card danger-zone", id: "s-delete" }, h("h2", { text: "Delete recorded data" }),
+  return h("section", { class: "card danger-zone" }, h("h2", { text: "Delete recorded data" }),
     h("p", { class: "muted", text: "Both delete activity, switches, screenshots and break answers. Deleted data cannot be recovered." }),
     h("div", { class: "cols" },
       h("div", { class: "danger-box" }, h("h3", { text: "Last hour" }),
@@ -691,12 +695,24 @@ function deleteCard(today) {
         h("label", { class: "field" }, h("span", { class: "lbl", text: "Day to delete" }), picker), preview, h("div", {}, delDay))));
 }
 
-async function pageSettings() {
+const SETTINGS_SECTIONS = [
+  { id: "tracking", name: "Tracking", about: "Screenshots, idle, hotkey, goals", icon: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2", card: (d) => trackingCard(d, "general") },
+  { id: "storage", name: "Screenshots", about: "Weekly wipe and storage cap", icon: "M3 7h4l2-3h6l2 3h4v13H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", card: (d) => trackingCard(d, "storage") },
+  { id: "privacy", name: "Privacy lists", about: "What is never recorded", icon: "M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z", card: (d) => listsCard(d) },
+  { id: "sort", name: "Not sure", about: "Pick categories for unsorted pages", icon: "M4 6h16M7 12h10M10 18h4", card: (d) => queueCard(d), badge: (d) => d.queue.length },
+  { id: "appearance", name: "Appearance", about: "Colour theme", icon: "M12 22a10 10 0 1 1 0-20c5.5 0 10 4 10 8.5 0 3-2.5 4.5-5 4.5h-2a2 2 0 0 0-1.5 3.3A2 2 0 0 1 12 22zM7.5 11h.01M12 7.5h.01M16.5 11h.01", card: () => themeCard() },
+  { id: "delete", name: "Delete data", about: "Last hour or a whole day", icon: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3", card: (d) => deleteCard(d.today), danger: true },
+];
+// Settings: a menu of sub-sections; only the chosen one is shown (#settings/<section>).
+async function pageSettings(sub) {
   const d = await api("/api/settings");
-  const jump = h("div", { class: "jump" }, [["s-tracking", "Tracking"], ["s-theme", "Appearance"], ["s-lists", "Privacy lists"],
-    ["s-sort", `Not sure (${d.queue.length})`], ["s-delete", "Delete data"]].map(([id, text]) =>
-    h("button", { text, onclick: () => document.getElementById(id).scrollIntoView({ behavior: "smooth", block: "start" }) })));
-  return [jump, trackingCard(d), themeCard(), listsCard(d), queueCard(d), deleteCard(d.today)];
+  const current = SETTINGS_SECTIONS.find((x) => x.id === sub) || SETTINGS_SECTIONS[0];
+  const menu = h("nav", { class: "subnav", "aria-label": "Settings sections" }, SETTINGS_SECTIONS.map((x) => {
+    const badge = x.badge ? x.badge(d) : 0;
+    return h("a", { href: `#settings/${x.id}`, class: (x === current ? "on" : "") + (x.danger ? " danger" : ""), ...(x === current ? { "aria-current": "page" } : {}) },
+      icon(x.icon), h("span", { class: "t" }, h("b", {}, x.name, badge ? h("span", { class: "badge", text: String(badge) }) : null), h("small", { text: x.about })));
+  }));
+  return [h("div", { class: "settings" }, menu, h("div", { class: "panel" }, current.card(d)))];
 }
 
 // router -----------------------------------------------------------------------------
@@ -704,7 +720,8 @@ const PAGES = { today: pageToday, focus: pageFocus, distractions: pageDistractio
 const TITLES = { today: "Today", focus: "Focus", distractions: "Distractions", replay: "Replay", plan: "Weekly plan", settings: "Settings" };
 const DAY_PAGES = new Set(["today", "focus", "distractions", "replay"]);  // pages that use the day picker
 async function render() {
-  let page = (location.hash.slice(1) || "today").split("?")[0];
+  const [rawPage, sub] = (location.hash.slice(1) || "today").split("?")[0].split("/");
+  let page = rawPage;
   if (!PAGES[page]) page = "today";
   for (const a of document.querySelectorAll("nav a")) {
     const on = a.getAttribute("href") === `#${page}`;
@@ -718,7 +735,7 @@ async function render() {
   clearTimeout(refreshTimer);
   const y = window.scrollY;
   try {
-    const nodes = await PAGES[page]();
+    const nodes = await PAGES[page](sub);
     main.replaceChildren(...nodes);
     if (page === "settings") window.scrollTo(0, y);  // re-render after a save keeps your place
   } catch (e) {

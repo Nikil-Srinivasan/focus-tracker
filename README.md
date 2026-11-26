@@ -174,7 +174,7 @@ tracker running; it records again from that moment and asks for a new goal.
 **Back from a break** (5+ min idle or locked) a small window asks once:
 Thinking, Break, Call or Distracted. Ignore it and it closes after 2 minutes.
 
-**Pause hotkey**: `Ctrl+Alt+P` toggles a 15 minute pause (`pause_hotkey` in
+**Pause hotkey**: `Ctrl+Alt+P` toggles a 15 minute pause: press once to pause, again to resume (`pause_hotkey` in
 `config.toml`; "" turns it off). Windows tells the tracker only that this exact
 combination was pressed; no other keys are seen or recorded.
 
@@ -269,7 +269,9 @@ data\
 Copy `config.example.toml` to `config.toml` (setup does this) and edit. Unknown
 keys are rejected so typos do not silently do nothing.
 
-Most everyday settings can also be changed on the **Settings** page: screenshot
+Settings is split into sub-sections (Tracking, Screenshots, Privacy lists, Not
+sure, Appearance, Delete data); pick one on the left to see only its options.
+Most everyday settings can also be changed there: screenshot
 interval, idle time, day start, deep-work goal, pause hotkey, the daily-goal and
 break prompts, AI review, weekly wipe day and time, storage cap, and the
 never-recorded / no-screenshot lists. Values are validated, written to
