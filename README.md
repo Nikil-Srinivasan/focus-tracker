@@ -159,7 +159,7 @@ Definitions: a **deep block** is 25+ min of on-goal work where no distraction
 lasts over 60 s and you are not away over 60 s. Switches ignore flickers under
 2 s. Excluded windows count as "Private", neither on-goal nor a distraction.
 
-Pages are in the left sidebar. Confirmations use an in-app dialog, and every
+Pages are in the left sidebar; the button at its bottom collapses it to icons only (hover for the page name), and the choice is remembered. Confirmations use an in-app dialog, and every
 save or delete shows a short confirmation in the bottom-right corner.
 
 **Delete recorded data** (bottom of Settings, in two separate boxes): **Delete the

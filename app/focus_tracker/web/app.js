@@ -752,6 +752,27 @@ function shiftDay(n) {
   dayInput.value = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
   render();
 }
+// Collapsible sidebar: icons only, with the page name as a tooltip. Remembered in this browser.
+const collapseBtn = document.getElementById("collapse");
+function applySide(collapsed) {
+  const root = document.documentElement;
+  if (collapsed) root.dataset.side = "collapsed"; else delete root.dataset.side;
+  collapseBtn.setAttribute("aria-expanded", String(!collapsed));
+  collapseBtn.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+  for (const el of [...document.querySelectorAll("nav#nav a"), collapseBtn]) {
+    const label = el === collapseBtn ? "Expand sidebar" : el.textContent.trim();
+    if (collapsed) { el.dataset.tip = label; el.setAttribute("aria-label", label); }
+    else { delete el.dataset.tip; if (el !== collapseBtn) el.removeAttribute("aria-label"); }
+  }
+  tip.hidden = true;
+}
+collapseBtn.addEventListener("click", () => {
+  const collapsed = document.documentElement.dataset.side !== "collapsed";
+  try { if (collapsed) localStorage.setItem("focus-side", "collapsed"); else localStorage.removeItem("focus-side"); } catch (_e) { /* storage blocked */ }
+  applySide(collapsed);
+});
+applySide(document.documentElement.dataset.side === "collapsed");
+
 document.getElementById("prev").addEventListener("click", () => shiftDay(-1));
 document.getElementById("next").addEventListener("click", () => shiftDay(1));
 dayInput.addEventListener("change", render);

@@ -196,4 +196,4 @@ def test_page_uses_in_app_dialogs_and_no_unsafe_html():
     assert not re.search(r"\b(confirm|alert|prompt)\(", js)
     assert "innerHTML" not in js and "insertAdjacentHTML" not in js
     html = resources.files("focus_tracker").joinpath("web", "index.html").read_text("utf-8")
-    assert 'src="/theme.js"' in html and "<dialog" in html
+    assert 'src="/theme.js"' in html and "<dialog" in html and 'id="collapse"' in html
