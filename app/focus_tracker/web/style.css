@@ -94,7 +94,23 @@ nav a svg { width: 18px; height: 18px; flex: none; }
 nav a:hover { background: var(--bg); color: var(--text); }
 nav a.on { background: var(--bg); color: var(--text); font-weight: 600; border-left-color: var(--accent); }
 nav a.on svg { color: var(--accent); }
-.side-foot { margin-top: auto; color: var(--muted); font-size: 11px; padding: 0 10px; }
+.collapse {
+  margin-top: auto; display: flex; align-items: center; gap: 10px; border: 0; background: none;
+  color: var(--muted); padding: 8px 13px; border-radius: 8px; text-align: left;
+}
+.collapse:hover { background: var(--bg); color: var(--text); }
+.collapse svg { width: 18px; height: 18px; flex: none; transition: transform 0.15s; }
+.side-foot { color: var(--muted); font-size: 11px; padding: 6px 10px 0; margin: 0; }
+.side { transition: flex-basis 0.15s; overflow: hidden; }
+:root[data-side="collapsed"] .side { flex-basis: 64px; padding-left: 8px; padding-right: 8px; }
+:root[data-side="collapsed"] .brand span,
+:root[data-side="collapsed"] nav#nav a span,
+:root[data-side="collapsed"] .collapse span,
+:root[data-side="collapsed"] .side-foot { display: none; }
+:root[data-side="collapsed"] .brand { justify-content: center; padding-left: 0; padding-right: 0; }
+:root[data-side="collapsed"] nav#nav a { justify-content: center; padding: 10px 0; }
+:root[data-side="collapsed"] .collapse { justify-content: center; padding: 10px 0; }
+:root[data-side="collapsed"] .collapse svg { transform: rotate(180deg); }
 .content { flex: 1; min-width: 0; }
 .top {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px;
@@ -107,7 +123,10 @@ nav a.on svg { color: var(--accent); }
 @media (max-width: 760px) {
   body { display: block; }
   .side { position: sticky; height: auto; flex-direction: row; align-items: center; padding: 6px 8px; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
-  .brand span, .side-foot { display: none; }
+  .brand span, .side-foot, .collapse { display: none; }
+  :root[data-side="collapsed"] .side { flex-basis: auto; }
+  :root[data-side="collapsed"] nav#nav a span { display: inline; }
+  :root[data-side="collapsed"] nav#nav a { padding: 4px 8px; }
   .brand { padding: 4px 8px; }
   nav { flex-direction: row; }
   nav a { flex-direction: column; gap: 2px; font-size: 11px; padding: 4px 8px; border-left: 0; border-bottom: 3px solid transparent; white-space: nowrap; }
