@@ -7,7 +7,9 @@
 # field the rule gives.
 #
 # Productive categories: "Tech/Work", "Learning", "Job search", "Study tools".
-# Everything else counts as a distraction.
+# "System" (file explorer, Windows settings, a new tab, a speed test, signing a
+# document) is neutral: neither work nor a distraction. Everything else counts
+# as a distraction.
 #
 # "Study tools" are helpers that serve whatever you are working on (notes, AI
 # chat, a web search). With a daily goal set they never start a deep block on
@@ -19,6 +21,11 @@ category = "Study tools"
 app = "^(anytype|obsidian|notion|onenote|claude|chatgpt)\\.exe$"
 url = "^https?://(claude\\.ai|chatgpt\\.com|gemini\\.google\\.com|(www\\.)?perplexity\\.ai)(/|$)|^https?://(www\\.)?(google\\.[a-z.]+|bing\\.com)/search$"
 title = " - Google Search( - Brave)?$"
+
+[[rule]]
+category = "Study tools"
+url = "^https?://(excalidraw\\.com|(www\\.)?tldraw\\.com|app\\.diagrams\\.net)(/|$)"
+title = "^Excalidraw( Whiteboard)?( - Brave)?$"
 
 [[rule]]
 category = "Learning"
@@ -40,6 +47,15 @@ category = "Tech/Work"
 app = "^(code|cursor|pycharm64|idea64|devenv|windowsterminal|powershell|pwsh|cmd|wsl|postman|docker desktop|github desktop|sublime_text|notepad\\+\\+)\\.exe$"
 url = "github\\.com|gitlab\\.com|localhost|127\\.0\\.0\\.1|vercel\\.com|supabase\\.com"
 
+# GitHub tabs the extension did not report a URL for, known by their title:
+# "... · Pull Request #4 · owner/repo", "owner/repo: description", "owner/repo - Brave".
+[[rule]]
+category = "Tech/Work"
+match = "all"
+app = "^(brave|chrome|msedge|firefox)\\.exe$"
+url = "^$"
+title = " · (Pull Request|Issue|Discussion) #\\d+ · | · GitHub( - Brave)?$|^GitHub - |^[\\w-]{2,}/[\\w.-]+(: .*)?( - Brave)?$"
+
 [[rule]]
 category = "Communication"
 app = "^(whatsapp|telegram|discord|slack|ms-teams|teams|outlook|thunderbird)\\.exe$"
@@ -50,6 +66,21 @@ title = "whatsapp|gmail|inbox"
 category = "Entertainment"
 url = "netflix\\.com|primevideo\\.com|hotstar\\.com|jiocinema\\.com|instagram\\.com|facebook\\.com|x\\.com|twitter\\.com|reddit\\.com|spotify\\.com"
 app = "^(spotify|vlc)\\.exe$"
+
+[[rule]]
+category = "System"
+app = "^(explorer|systemsettings|taskmgr|lockapp)\\.exe$"
+url = "^(brave|chrome|edge)://(newtab|settings|extensions)|^about:(blank|newtab)|^https?://(www\\.)?(speedtest\\.net|fast\\.com)(/|$)|^https?://([a-z0-9-]+\\.)?docusign\\.(com|net)(/|$)"
+
+[[rule]]
+category = "System"
+match = "all"
+app = "^applicationframehost\\.exe$"
+title = "^Settings$"
+
+[[rule]]
+category = "System"
+title = "^New Tab( - Brave)?$"
 
 # Screen-text word lists (OCR). One screenshot decides a category when it shows
 # at least 3 different words of that list and at least 2 more than any list on

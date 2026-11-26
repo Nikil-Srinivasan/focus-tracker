@@ -15,6 +15,9 @@ PRODUCTIVE = {"Tech/Work", "Learning", "Job search", "Study tools"}
 # keyword match they are "Support": they keep an on-goal block going but cannot
 # start one (metrics.deep_blocks decides, then relabels them On- or Off-goal).
 SUPPORT = {"Study tools"}
+# Housekeeping (file explorer, Windows settings, a new tab, a speed test, e-signing): neither
+# work nor a distraction. Its fit is "Neutral"; over 60 s it still ends a deep block.
+NEUTRAL = {"System"}
 UNCATEGORIZED = "Other"  # nothing decided: no rule and no confident screen text
 
 
@@ -119,8 +122,10 @@ def categorize_with_content(
 def goal_fit(
     category: str, process: str, title: str, url: str, keywords: list[str], on_screen: bool = False
 ) -> str:
-    """'On-goal', 'Off-goal', 'Support' or 'Distraction'. Without a goal, productive
-    time is On-goal. on_screen: a goal keyword was read on the screen most of the time."""
+    """'On-goal', 'Off-goal', 'Support', 'Neutral' or 'Distraction'. Without a goal,
+    productive time is On-goal. on_screen: a goal keyword was read on the screen most of the time."""
+    if category in NEUTRAL:
+        return "Neutral"
     if category not in PRODUCTIVE:
         return "Distraction"
     if not keywords or on_screen:

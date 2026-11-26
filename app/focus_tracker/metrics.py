@@ -28,6 +28,7 @@ from .categorize import (  # noqa: F401  categorize is re-exported
     parse_keywords,
 )
 from .db import Store
+from .goal import BREAK_LABELS, REST_LABELS
 
 DEEP_MIN_S = 25 * 60
 MAX_INTERRUPT_S = 60
@@ -41,6 +42,10 @@ EXCLUDED_TITLE = "[excluded]"  # same marker the agent writes
 PRIVATE = "Private"  # excluded windows: neither on-goal nor a distraction
 BROWSERS = {"brave.exe", "chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "vivaldi.exe"}
 PRESENT_STATES = ("active", "watching")
+# The Windows lock screen. It can be in front while the session is not (yet)
+# reported locked, e.g. the curtain after waking from sleep: the agent counts it
+# as locked, and older logs that recorded it are skipped here.
+LOCK_SCREEN_PROCESSES = {"lockapp.exe"}
 HIST_BINS = [(0, 1), (1, 5), (5, 15), (15, 25), (25, 45), (45, 90), (90, None)]  # minutes
 
 
@@ -115,6 +120,8 @@ def load_segments(
     )
     out = []
     for start, end, process, title, url, content_cat, content_goal in rows:
+        if process.lower() in LOCK_SCREEN_PROCESSES:
+            continue
         start, end = max(start, lo), min(end, hi)
         if title == EXCLUDED_TITLE:
             out.append(Seg(start, end, process, title, url, PRIVATE, PRIVATE))
@@ -218,6 +225,11 @@ def runs(segs: list[Seg], key) -> list[tuple[str, float, float, list[Seg]]]:
         else:
             out.append((k, s.start, s.end, [s]))
     return out
+
+
+def _break_order(row: tuple) -> tuple[int, str]:
+    label = row[0]
+    return (BREAK_LABELS.index(label) if label in BREAK_LABELS else len(BREAK_LABELS), label)
 
 
 def _median_min(values: list[float]) -> float | None:
@@ -332,8 +344,10 @@ class DayReport:
             "hourly_switches": [hourly_switches.get(h, 0) for h in range(24)],
             "cards": self.cards(),
             "breaks": [
-                {"label": label, "count": n, "minutes": round(secs / 60)} for label, n, secs in self.breaks
+                {"label": label, "count": n, "minutes": round(secs / 60), "rest": label in REST_LABELS}
+                for label, n, secs in sorted(self.breaks, key=_break_order)
             ],
+            "rest_min": round(sum(secs for label, _n, secs in self.breaks if label in REST_LABELS) / 60),
         }
 
     def cards(self) -> list[dict]:
@@ -438,6 +452,58 @@ def heatmap(store: Store, classifier: Classifier, end_day: date, rollover_hour: 
                 t += step
         rows.append({"day": d.isoformat(), "minutes": [round(m) for m in minutes]})
     return {"rows": rows}
+
+
+STILL_ON_S = 90  # last activity this recent on the current day = still at the PC
+
+
+def day_edges(store: Store, end_day: date, rollover_hour: int, now: float, days: int = 14) -> dict:
+    """First and last moment at the PC (any window in front while active or
+    watching; the lock screen does not count) for each of the last `days` tracker
+    days, plus the typical start and stop. The current day's stop is left out of
+    the typical stop while it is still going."""
+    rows = []
+    starts, stops = [], []
+    for i in range(days - 1, -1, -1):
+        d = end_day - timedelta(days=i)
+        lo, hi = day_bounds(d, rollover_hour)
+        if lo > now:
+            continue
+        marks = ",".join("?" * len(LOCK_SCREEN_PROCESSES))
+        first, last = store.query(
+            "SELECT MIN(start_ts), MAX(end_ts) FROM activity "
+            f"WHERE end_ts >= ? AND start_ts < ? AND LOWER(process) NOT IN ({marks})",
+            (lo, hi, *sorted(LOCK_SCREEN_PROCESSES)),
+        )[0]
+        if first is None:
+            rows.append({"day": d.isoformat(), "first": None, "last": None, "still_on": False,
+                         "span_min": 0, "active_min": 0})
+            continue
+        first, last = max(first, lo), min(last, hi)
+        still_on = lo <= now < hi and now - last <= STILL_ON_S
+        active = sum(
+            max(0.0, e - s) for s, e, st in present_spans(store, lo, hi) if st in PRESENT_STATES
+        )
+        rows.append({
+            "day": d.isoformat(), "first": first, "last": last, "still_on": still_on,
+            "span_min": round((last - first) / 60), "active_min": round(active / 60),
+        })
+        starts.append(first - lo)
+        if not (lo <= now < hi):
+            stops.append(last - lo)
+
+    def typical(offsets: list[float]) -> dict | None:
+        if not offsets:
+            return None
+        base = datetime.combine(end_day, datetime.min.time()) + timedelta(hours=rollover_hour)
+
+        def fmt(off: float) -> str:
+            return (base + timedelta(seconds=off)).strftime("%H:%M")
+
+        return {"median": fmt(statistics.median(offsets)), "earliest": fmt(min(offsets)),
+                "latest": fmt(max(offsets)), "days": len(offsets)}
+
+    return {"rows": rows, "rollover_hour": rollover_hour, "start": typical(starts), "stop": typical(stops)}
 
 
 def uncategorized(store: Store, classifier: Classifier, lo: float, hi: float, limit: int = 25) -> list[dict]:
