@@ -11,6 +11,7 @@ from datetime import datetime
 from PIL import Image, ImageDraw
 
 from .agent import PRESENT, Agent
+from .timefmt import clock12
 
 COLORS = {"active": (46, 160, 67), "paused": (219, 154, 4), "other": (130, 130, 130)}
 
@@ -27,8 +28,8 @@ def run_tray(agent: Agent, stop: threading.Event, dashboard_url: str | None = No
 
     def status(_item) -> str:
         if agent.paused_until > time.time():
-            until = datetime.fromtimestamp(agent.paused_until).strftime("%a %H:%M")
-            return f"Paused until {until}"
+            until = datetime.fromtimestamp(agent.paused_until)
+            return f"Paused until {until:%a} {clock12(until)}"
         return f"Status: {agent.current_state}"
 
     def pause(seconds: float):

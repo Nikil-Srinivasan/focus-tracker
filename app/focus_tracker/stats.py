@@ -13,6 +13,7 @@ from .browser import domain_of
 from .categorize import categorize_with_content, goal_fit, load_rules, parse_keywords
 from .config import load_config
 from .db import Store
+from .timefmt import hour12
 
 
 def _fmt(seconds: float) -> str:
@@ -32,7 +33,7 @@ def main() -> None:
     start = datetime.combine(day, datetime.min.time()) + timedelta(hours=cfg.day_rollover_hour)
     lo, hi = start.timestamp(), (start + timedelta(days=1)).timestamp()
 
-    print(f"Day {day} (starts {cfg.day_rollover_hour:02d}:00)")
+    print(f"Day {day} (starts {hour12(cfg.day_rollover_hour)})")
     for state, secs in store.query(
         "SELECT state, SUM(end_ts - start_ts) FROM state WHERE start_ts >= ? AND start_ts < ? "
         "GROUP BY state ORDER BY 2 DESC",

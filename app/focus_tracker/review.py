@@ -32,7 +32,8 @@ Use ONLY the numbers in the JSON below; never invent a number, site or pattern.
 Rules: lead each point with the number; name the exact site, app, hour or pattern;
 no praise padding; one clear instruction per point; under 220 words; plain text
 with short paragraphs or a numbered list; no headings. If confidence is "low",
-say so in one sentence first. Then explain the top actions in order, how last
+say so in one sentence first. Write clock times in 12-hour form with AM/PM
+(for example 9 AM or 2:30 PM), never 24-hour. Then explain the top actions in order, how last
 week's targets went (if graded), and the deep-work bar for next week.
 
 JSON:
